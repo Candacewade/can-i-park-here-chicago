@@ -1,12 +1,14 @@
 """Run our parking agent over a canonical ParkingRequest.
 
-This is the heart of Vertical Slice 1:
-
-    ParkingRequest -> Claude Agent SDK -> our stdio MCP server -> real Chicago data
+    ParkingRequest
+      -> Claude Agent SDK  (agent chooses which evidence tools to call)
+      -> our stdio MCP server -> real Chicago data
+      -> evaluate_parking_request  (deterministic: re-gather + completeness + verdict)
+      -> agent explains the ParkingDecision
 
 The agent decides *which* MCP tools to call and with what arguments. We capture
 every tool call (name, args, result, latency, order) so the run is fully
-observable, and we return the raw evidence the agent collected.
+observable, and we surface the deterministic decision the evaluator returned.
 """
 
 from __future__ import annotations
@@ -63,13 +65,18 @@ class AgentRunResult:
     final_text: str
     tool_calls: list[ToolCallTrace] = field(default_factory=list)
     evidence: dict[str, Any] = field(default_factory=dict)
+    decision: dict[str, Any] | None = None  # from evaluate_parking_request, if the agent called it
     duration_ms: float | None = None
     num_turns: int | None = None
     model: str = AGENT_MODEL
 
-    def evidence_summary(self) -> dict[str, Any]:
-        """The normalized evidence keyed by category, for the rule engine (Slice 2)."""
-        return self.evidence
+    @property
+    def decision_status(self) -> str | None:
+        if isinstance(self.decision, dict):
+            inner = self.decision.get("decision", self.decision)
+            if isinstance(inner, dict):
+                return inner.get("status")
+        return None
 
 
 async def _only_parking_tools(
@@ -117,7 +124,8 @@ def _build_options() -> ClaudeAgentOptions:
 
 def _prompt_for(request: ParkingRequest) -> str:
     return (
-        "Gather parking evidence for this request and summarize what the tools return.\n\n"
+        "Assess this parking request: gather the evidence it needs, get the "
+        "official decision from evaluate_parking_request, then explain it.\n\n"
         f"location_id: {request.location_id}\n"
         f"start_time: {request.start_time.isoformat()}\n"
         f"end_time: {request.end_time.isoformat()}\n"
@@ -190,14 +198,18 @@ async def run_parking_agent(request: ParkingRequest) -> AgentRunResult:
 
 
 def _record_evidence(result: AgentRunResult, trace: ToolCallTrace) -> None:
-    """Keep the last result of each restriction tool as the collected evidence."""
+    """Keep the last result of each tool as the collected evidence / decision."""
     name = trace.short_name()
     if name == "get_residential_restrictions":
         result.evidence["residential"] = trace.result
     elif name == "get_street_cleaning_restrictions":
         result.evidence["street_cleaning"] = trace.result
+    elif name == "get_temporary_closures":
+        result.evidence["temporary_closure"] = trace.result
     elif name == "get_location_context":
         result.evidence["location_context"] = trace.result
+    elif name == "evaluate_parking_request" and isinstance(trace.result, dict):
+        result.decision = trace.result
 
 
 def format_trace(result: AgentRunResult) -> str:
@@ -226,7 +238,24 @@ def format_trace(result: AgentRunResult) -> str:
     if result.duration_ms:
         lines.append(f"duration    : {result.duration_ms / 1000:.1f}s")
     lines.append("-" * 60)
-    lines.append("AGENT SUMMARY")
+    lines.append("DETERMINISTIC DECISION (evaluate_parking_request)")
+    if result.decision is None:
+        lines.append("  (agent did not call the evaluator)")
+    else:
+        inner = result.decision.get("decision", {})
+        comp = result.decision.get("completeness", {})
+        lines.append(f"  status   : {inner.get('status')}")
+        if inner.get("move_by"):
+            lines.append(f"  move_by  : {inner['move_by']}")
+        for reason in inner.get("reasons", []):
+            lines.append(
+                f"  - [{reason.get('verdict')}] {reason.get('category')}: {reason.get('detail')}"
+            )
+        for ur in inner.get("unknown_reasons", []):
+            lines.append(f"  ? {ur}")
+        lines.append(f"  complete : {comp.get('complete')}")
+    lines.append("-" * 60)
+    lines.append("AGENT EXPLANATION")
     lines.append(result.final_text.strip() or "(no text)")
     lines.append("=" * 60)
     return "\n".join(lines)

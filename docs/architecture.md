@@ -50,11 +50,11 @@ The LLM **orchestrates**; it never **adjudicates**.
 |---|---|---|
 | `backend/app/models/` | `ParkingRequest`, evidence schemas, `ParkingDecision` | 1 |
 | `backend/app/locations/` | canonical location registry (`location_id` → block) | 1 |
-| `backend/app/services/` | plain Python clients over City datasets; failure → `UNAVAILABLE` | 1 |
-| `backend/app/mcp/server.py` | custom stdio MCP server exposing the parking toolbox | 1 |
+| `backend/app/services/` | plain Python clients over 3 City datasets; failure → `UNAVAILABLE` | 1–2 |
+| `backend/app/mcp/server.py` | custom stdio MCP server exposing the parking toolbox + `evaluate_parking_request` | 1–2 |
 | `backend/app/agent/` | Claude Agent SDK integration + tool-call tracing | 1 |
 | `backend/app/cli.py` | developer runner: one request → visible trace | 1 |
-| `backend/app/rules/` | `evaluate_parking()` deterministic engine + completeness check | 2 |
+| `backend/app/rules/` | `gather_evidence` + `check_completeness` + `evaluate_parking()` | 2 ✅ |
 | `backend/app/api/` | FastAPI app | 3 |
 | `frontend/` | React (Vite + TS) structured-selector UI | 3 |
 | `backend/evals/` | agent evaluation scenarios + metrics | 4 |

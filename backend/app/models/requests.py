@@ -39,7 +39,7 @@ class ParkingRequest(BaseModel):
         if v is None:
             return None
         v = v.strip().upper()
-        if not v:
+        if v in {"", "NONE", "NULL", "N/A"}:
             return None
         if not _PERMIT_ZONE_RE.match(v):
             raise ValueError(f"permit_zone {v!r} is not a valid Chicago zone format")

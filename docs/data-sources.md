@@ -68,11 +68,36 @@ Known limitations:
 
 ---
 
+### Transportation Permits / Street Closures — temporary closures
+
+| | |
+|---|---|
+| Dataset ID | `rzy5-8tax` |
+| Endpoint | `https://data.cityofchicago.org/resource/rzy5-8tax.json` |
+| Format | JSON (SODA) |
+| Update frequency | Continuous (permit lifecycle) |
+| Client | [`app/services/street_closures.py`](../backend/app/services/street_closures.py) |
+| MCP tool | `get_temporary_closures` |
+
+Fields we use: `streetname`, `direction`, `streetnumberfrom`/`streetnumberto`,
+`applicationstartdate`/`applicationenddate`, `applicationstatus` (`Open`/`Closed`),
+`currentmilestone` (skip `Cancelled`), `streetclosure` (`Full`/`Curblane`/`Partial`),
+`parkingmeterpostingorbagging` (`Y`).
+
+How we use it: match permits by street + direction + address-range overlap +
+date overlap with the interval; keep only `Open`, non-cancelled permits whose
+closure removes the curb lane (`Full`/`Curblane`, or a meter-posting flag).
+
+Known limitations: permits are day-granular (no hours); `Partial` closures
+without a meter flag are treated as no parking impact; the dataset carries
+occasional garbage dates (year 2105+) which we reject.
+
+---
+
 ## Researched, not yet integrated
 
 | Purpose | Dataset | ID | Notes |
 |---|---|---|---|
-| Street closure / public-way permits | Transportation - Permits (Public Way Use / Closures) | `rzy5-8tax` | Point + street-range geometry, `applicationstartdate`/`applicationenddate`, `streetclosure` type. **Next MCP tool after Slice 1.** Original repo stub targeted this dataset. |
 | Chicago municipal boundary | City Boundary | `qqq8-j68g` | Single multipolygon; used to bound the generated registry. |
 | Street centerlines | Transportation - Street Center Lines | `6imu-meau` | Segment geometry + address ranges + cross-street names; basis for the generated block registry (Slice 5). |
 | Snow / winter overnight parking ban routes | Winter Overnight Parking Ban | *(TBD)* | 2 AM–7 AM ban Dec 1–Apr 1 on ~107 mi regardless of snow, plus 2-inch routes. Needs verification of a machine-readable source. |

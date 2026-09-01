@@ -30,7 +30,8 @@ def test_naive_datetime_is_localized_to_chicago():
 
 @pytest.mark.parametrize(
     "zone,expected",
-    [("143", "143"), (" 143 ", "143"), ("1810", "1810"), ("", None)],
+    [("143", "143"), (" 143 ", "143"), ("1810", "1810"), ("", None),
+     ("none", None), ("None", None), ("N/A", None)],
 )
 def test_permit_zone_normalization(zone, expected):
     assert _req(permit_zone=zone).permit_zone == expected

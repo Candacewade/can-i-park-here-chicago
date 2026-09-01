@@ -7,9 +7,11 @@ logic** rather than allowing the LLM to invent regulations, and (in progress)
 includes **agent evaluations** that test tool selection, missing-data handling,
 and hallucination prevention.
 
-> Status: **Vertical Slice 1 complete.** A structured `ParkingRequest` flows
+> Status: **Vertical Slice 2 complete.** A structured `ParkingRequest` flows
 > through the Claude Agent SDK → our stdio MCP server → real City of Chicago
-> Open Data, with every tool call visible. Rule engine, API, and UI are next.
+> Open Data → a deterministic completeness check + rule engine that returns
+> `LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN`, which the agent then explains.
+> Every tool call is visible. API and UI are next.
 
 ## What's interesting here
 
@@ -50,7 +52,9 @@ summarize the verified evidence.
 ## Docs
 
 - [docs/architecture.md](docs/architecture.md) — components and the safety boundary
+- [docs/rule-engine.md](docs/rule-engine.md) — the deterministic verdict pipeline
 - [docs/data-sources.md](docs/data-sources.md) — every dataset, fields, limitations
+- [docs/mcp-tools.md](docs/mcp-tools.md) · [docs/agent-design.md](docs/agent-design.md)
 - [docs/MASTER_BUILD_PLAN.md](docs/MASTER_BUILD_PLAN.md) — the full project plan
 
 ## Roadmap
@@ -58,7 +62,7 @@ summarize the verified evidence.
 | Slice | Scope | State |
 |---|---|---|
 | 1 | `ParkingRequest` → agent → MCP → real data → visible result | ✅ |
-| 2 | evidence completeness check + deterministic `evaluate_parking()` | next |
-| 3 | React selector UI → FastAPI → agent → result UI | |
+| 2 | evidence completeness check + deterministic `evaluate_parking()`; street-closure tool | ✅ |
+| 3 | React selector UI → FastAPI → agent → result UI | next |
 | 4 | agent tracing, evals, failure handling | |
 | 5 | generated Chicago-wide block registry + more datasets + deploy | |
