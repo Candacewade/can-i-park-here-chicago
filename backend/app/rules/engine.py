@@ -1,0 +1,181 @@
+"""``evaluate_parking(request, evidence) -> ParkingDecision``.
+
+The only component that decides parking legality. Pure function, no I/O, no LLM.
+
+Verdict precedence:  NOT_LEGAL  >  UNKNOWN  >  LEGAL_UNTIL  >  LEGAL
+
+- A verified restriction active at the start time  -> NOT_LEGAL (you cannot park).
+- Otherwise, any safety-required evidence not verified -> UNKNOWN.
+- Otherwise, a verified restriction that begins during the interval -> LEGAL_UNTIL.
+- Otherwise -> LEGAL.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+
+from app.config import CHICAGO_TZ
+from app.models.decision import DecisionReason, ParkingDecision, ParkingStatus
+from app.models.evidence import EvidenceStatus, ParkingEvidence
+from app.models.requests import ParkingRequest
+from app.rules.completeness import check_completeness
+
+_RESIDENTIAL_DS = "qiag-khha"
+_CLEANING_DS = "u5ai-3efk"
+_CLOSURE_DS = "rzy5-8tax"
+
+
+def _fmt(dt: datetime) -> str:
+    local = dt.astimezone(CHICAGO_TZ)
+    return local.strftime("%a %b %-d %-I:%M %p").replace(":00", "")
+
+
+@dataclass
+class _Conflict:
+    category: str
+    detail: str
+    source: str
+    move_by: datetime | None = None  # set => begins mid-interval (limit), not active now
+
+
+def _residential_reasons(request: ParkingRequest, evidence: ParkingEvidence) -> tuple[
+    list[DecisionReason], list[_Conflict]
+]:
+    r = evidence.residential
+    if not r or r.status != EvidenceStatus.VERIFIED:
+        return [], []
+    if r.zone_required is None:
+        return [DecisionReason(
+            category="residential", verdict="allows",
+            detail="Block is not in a residential permit zone.",
+            source_dataset_id=_RESIDENTIAL_DS,
+        )], []
+    if r.is_buffer:
+        return [DecisionReason(
+            category="residential", verdict="allows",
+            detail=(
+                f"Buffer zone {r.zone_required}: no signs posted; "
+                "on-street parking not restricted."
+            ),
+            source_dataset_id=_RESIDENTIAL_DS,
+        )], []
+    if request.permit_zone and request.permit_zone == r.zone_required:
+        return [DecisionReason(
+            category="residential", verdict="allows",
+            detail=f"Zone {r.zone_required} permit required; your permit matches.",
+            source_dataset_id=_RESIDENTIAL_DS,
+        )], []
+    held = f"zone {request.permit_zone}" if request.permit_zone else "no permit"
+    detail = (
+        f"Residential zone {r.zone_required} permit required to park here; you have {held}. "
+        "(Posted hours are not in the City dataset; the zone is treated as in effect "
+        "for your interval.)"
+    )
+    conflict = _Conflict("residential", detail, _RESIDENTIAL_DS)
+    return [DecisionReason(
+        category="residential", verdict="blocks", detail=detail, source_dataset_id=_RESIDENTIAL_DS,
+    )], [conflict]
+
+
+def _window_conflicts(
+    request: ParkingRequest, windows, category: str, source: str, label
+) -> tuple[list[DecisionReason], list[_Conflict]]:
+    reasons: list[DecisionReason] = []
+    conflicts: list[_Conflict] = []
+    for w in windows:
+        start = w.start if hasattr(w, "start") else w[0]
+        end = w.end if hasattr(w, "end") else w[1]
+        text = label(w)
+        if start <= request.start_time < end:
+            msg = f"{text} is in effect at your start time."
+            reasons.append(DecisionReason(
+                category=category, verdict="blocks", detail=msg, source_dataset_id=source,
+            ))
+            conflicts.append(_Conflict(category, msg, source))
+        elif request.start_time < start < request.end_time:
+            reasons.append(DecisionReason(
+                category=category, verdict="limits",
+                detail=f"{text} begins {_fmt(start)}, before your requested departure.",
+                source_dataset_id=source,
+            ))
+            conflicts.append(_Conflict(
+                category, f"{text} begins {_fmt(start)}.", source, move_by=start,
+            ))
+    return reasons, conflicts
+
+
+def _street_cleaning_reasons(request, evidence):
+    sc = evidence.street_cleaning
+    if not sc or sc.status != EvidenceStatus.VERIFIED:
+        return [], []
+    if not sc.windows:
+        return [DecisionReason(
+            category="street_cleaning", verdict="allows",
+            detail="No street cleaning scheduled during your interval.",
+            source_dataset_id=_CLEANING_DS,
+        )], []
+    return _window_conflicts(
+        request, sc.windows, "street_cleaning", _CLEANING_DS,
+        lambda w: "Street cleaning",
+    )
+
+
+def _closure_reasons(request, evidence):
+    tc = evidence.temporary_closure
+    if not tc or tc.status != EvidenceStatus.VERIFIED:
+        return [], []
+    if not tc.closures:
+        return [DecisionReason(
+            category="temporary_closure", verdict="allows",
+            detail="No temporary street-closure permit affects this block during your interval.",
+            source_dataset_id=_CLOSURE_DS,
+        )], []
+    def label(c):
+        work = c.work_description or "work zone"
+        return f"Permit {c.permit_number} ({c.closure_type} closure: {work})"
+
+    return _window_conflicts(request, tc.closures, "temporary_closure", _CLOSURE_DS, label)
+
+
+def evaluate_parking(request: ParkingRequest, evidence: ParkingEvidence) -> ParkingDecision:
+    reasons: list[DecisionReason] = []
+    conflicts: list[_Conflict] = []
+
+    for fn in (_residential_reasons, _street_cleaning_reasons, _closure_reasons):
+        r, c = fn(request, evidence)
+        reasons.extend(r)
+        conflicts.extend(c)
+
+    blocking = [c for c in conflicts if c.move_by is None]
+    limiting = [c for c in conflicts if c.move_by is not None]
+    completeness = check_completeness(request, evidence)
+
+    # NOT_LEGAL: a verified restriction is active at the start time. This holds
+    # even if other evidence is incomplete -- you still cannot park.
+    if blocking:
+        return ParkingDecision(
+            status=ParkingStatus.NOT_LEGAL,
+            reasons=reasons,
+            unknown_reasons=[],
+        )
+
+    # UNKNOWN: a safety-required category could not be verified.
+    if not completeness.complete:
+        return ParkingDecision(
+            status=ParkingStatus.UNKNOWN,
+            reasons=reasons,
+            unknown_reasons=completeness.missing,
+        )
+
+    # LEGAL_UNTIL: currently fine, but a verified restriction starts before departure.
+    if limiting:
+        move_by = min(c.move_by for c in limiting)  # type: ignore[type-var]
+        return ParkingDecision(
+            status=ParkingStatus.LEGAL_UNTIL,
+            move_by=move_by,
+            reasons=reasons,
+            unknown_reasons=[],
+        )
+
+    return ParkingDecision(status=ParkingStatus.LEGAL, reasons=reasons, unknown_reasons=[])
