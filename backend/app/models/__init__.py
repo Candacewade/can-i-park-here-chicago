@@ -8,6 +8,8 @@ from app.models.evidence import (
     SourceProvenance,
     StreetCleaningEvidence,
     StreetCleaningWindow,
+    TemporaryClosure,
+    TemporaryClosureEvidence,
 )
 from app.models.requests import ParkingRequest
 
@@ -22,4 +24,6 @@ __all__ = [
     "SourceProvenance",
     "StreetCleaningEvidence",
     "StreetCleaningWindow",
+    "TemporaryClosure",
+    "TemporaryClosureEvidence",
 ]

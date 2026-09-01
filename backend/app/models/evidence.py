@@ -76,8 +76,39 @@ class StreetCleaningEvidence(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class TemporaryClosure(BaseModel):
+    """A single street-closure / public-way-use permit overlapping the request."""
+
+    permit_number: str
+    closure_type: str = Field(description="City 'streetclosure' value: Full / Curblane / Partial.")
+    start: datetime
+    end: datetime
+    meter_posting_or_bagging: bool = Field(
+        description="City flagged parking-meter posting/bagging for this permit."
+    )
+    work_description: str
+    blocks_parking: bool = Field(
+        description="Our deterministic read of whether this permit removes on-street parking."
+    )
+
+
+class TemporaryClosureEvidence(BaseModel):
+    """Temporary street-closure permits affecting the requested block + interval."""
+
+    status: EvidenceStatus
+    provenance: SourceProvenance | None = None
+
+    # Populated when status == VERIFIED:
+    closures: list[TemporaryClosure] = Field(
+        default_factory=list,
+        description="Permits with parking impact that intersect the interval, sorted by start.",
+    )
+    notes: list[str] = Field(default_factory=list)
+
+
 class ParkingEvidence(BaseModel):
     """The full evidence bundle handed to the deterministic evaluator."""
 
     residential: ResidentialZoneEvidence | None = None
     street_cleaning: StreetCleaningEvidence | None = None
+    temporary_closure: TemporaryClosureEvidence | None = None

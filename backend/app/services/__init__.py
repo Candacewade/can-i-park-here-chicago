@@ -9,10 +9,12 @@ every failure mode into ``EvidenceStatus.UNAVAILABLE`` rather than a silent
 from app.services.residential_zones import get_residential_zone_evidence
 from app.services.socrata import SocrataClient, SocrataError
 from app.services.street_cleaning import get_street_cleaning_evidence
+from app.services.street_closures import get_street_closure_evidence
 
 __all__ = [
     "SocrataClient",
     "SocrataError",
     "get_residential_zone_evidence",
     "get_street_cleaning_evidence",
+    "get_street_closure_evidence",
 ]

@@ -8,9 +8,17 @@ shape -- into a single ``SocrataError``. Callers above translate that into
 
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from app.config import SOCRATA_APP_TOKEN, SOCRATA_DOMAIN, SOCRATA_TIMEOUT_SECONDS
+
+# Short in-process response cache. Within one agent run the agent may explore a
+# restriction tool and then the evaluator re-checks the same dataset; this keeps
+# that from being two HTTP round trips. Failures are never cached.
+_CACHE_TTL_SECONDS = 90.0
+_cache: dict[tuple, tuple[float, list[dict]]] = {}
 
 
 class SocrataError(RuntimeError):
@@ -32,6 +40,11 @@ class SocrataClient:
 
     def get_rows(self, dataset_id: str, params: dict[str, str]) -> list[dict]:
         """Run a SODA query. ``params`` uses SODA keys like ``$where``, ``$limit``."""
+        cache_key = (self._base, dataset_id, tuple(sorted(params.items())))
+        hit = _cache.get(cache_key)
+        if hit is not None and (time.monotonic() - hit[0]) < _CACHE_TTL_SECONDS:
+            return hit[1]
+
         url = f"{self._base}/{dataset_id}.json"
         try:
             resp = httpx.get(
@@ -58,6 +71,7 @@ class SocrataClient:
             raise SocrataError(
                 f"unexpected response shape from {dataset_id}: {type(body).__name__}"
             )
+        _cache[cache_key] = (time.monotonic(), body)
         return body
 
     def query_url(self, dataset_id: str, params: dict[str, str]) -> str:
