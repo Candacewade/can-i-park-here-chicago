@@ -1,14 +1,54 @@
 # Authoritative Data Sources
 
-All data is free and comes from the **City of Chicago Open Data Portal**
+Almost all data is free and comes from the **City of Chicago Open Data Portal**
 (`data.cityofchicago.org`), a Socrata instance queried through the SODA API.
-No API key is required (an optional app token raises rate limits). No paid data
-vendor is used anywhere.
+No API key is required (an optional app token raises rate limits). The one
+non-Chicago source is the **US Census Bureau geocoder** (also free, keyless,
+government TIGER/Line data). **No paid data vendor is used anywhere** — no Google
+Maps, no Mapbox, no commercial geocoder.
 
 Geographic universe: the City of Chicago municipal boundary — conceptually the
 area Google Maps outlines as "Chicago". Google Maps is a *visual reference only*;
 the machine-readable implementation uses official City geography (see
 [location-model.md](location-model.md)).
+
+---
+
+## Address resolution (Slice 5)
+
+### US Census Bureau geocoder — address → point + street segment
+
+| | |
+|---|---|
+| Endpoint | `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress` |
+| Auth | none (free, keyless) |
+| Client | `app/locations/geocode.py` |
+| Returns | matched address, `coordinates` (x=lon, y=lat), `addressComponents` (`streetName`, `preDirection`, `suffixType`, `fromAddress`, `toAddress`, `zip`), `tigerLine` (`side` L/R, `tigerLineId`) |
+| Benchmark / vintage | `Public_AR_Current` |
+| Limitation | occasional latency/outage → resolution falls back to `pr57-gg9e` by street + number. Not every address matches (new construction, vanity addresses). |
+
+### Chicago Street Center Lines
+
+| | |
+|---|---|
+| Dataset ID | `pr57-gg9e` |
+| Fields used | `street_nam`, `pre_dir`, `street_typ`, `l_f_add`/`l_t_add`/`r_f_add`/`r_t_add` (left/right address ranges), `fnode_id`/`tnode_id` (topology), `the_geom`, `trans_id` |
+| Use | canonical segment for an address; geometry for the side cross-product; endpoint nodes → cross-street names |
+
+### Street Sweeping Zones — 2026
+
+| | |
+|---|---|
+| Dataset ID | `2r7q-emq3` (**replaces `u5ai-3efk`**) |
+| Fields used | `the_geom` (MultiPolygon), `ward`, `section`, `ward_section`, `april`…`november` (day-of-month lists) |
+| Use | `intersects(the_geom, POINT(lon lat))` → the block's ward + section **and** its month-by-month sweeping schedule, in one query. `u5ai-3efk` was missing several wards; this dataset carries geometry and is complete. |
+
+### City Boundary / Community Areas
+
+| purpose | dataset | use |
+|---|---|---|
+| in-Chicago gate | `qqq8-j68g` | `intersects(POINT(...))` → `CHICAGO` or `[]` |
+| neighborhood (display only) | `igwz-8jzy` | `intersects(POINT(...))` → community area name |
 
 ---
 
@@ -39,30 +79,29 @@ Known limitations: matching is by address range + parity, not geometry. Blocks
 that straddle a zone boundary could match more than one segment; we prefer a
 posted (non-buffer) segment.
 
-### Street Sweeping Schedule - 2026 — street cleaning
+### Street Sweeping Zones - 2026 — street cleaning
 
 | | |
 |---|---|
-| Dataset ID | `u5ai-3efk` |
-| Endpoint | `https://data.cityofchicago.org/resource/u5ai-3efk.json` |
-| Format | JSON (SODA) |
-| Update frequency | Annual schedule; occasional revisions |
+| Dataset ID | `2r7q-emq3` (Slice 5; was `u5ai-3efk` in Slices 1–4) |
+| Endpoint | `https://data.cityofchicago.org/resource/2r7q-emq3.json` |
+| Format | JSON (SODA), MultiPolygon geometry |
 | Client | [`app/services/street_cleaning.py`](../backend/app/services/street_cleaning.py) |
 | MCP tool | `get_street_cleaning_restrictions` |
 
-Fields we use: `ward`, `section`, `month_name` / `month_number`, `dates`
-(comma-separated day-of-month numbers, e.g. `"8,9"`).
+Fields we use: `the_geom`, `ward`, `section`, and the month columns `april` …
+`november` (each a comma-separated list of days, e.g. `"3,4,8,9"`; a missing
+month = no sweeping that month).
 
-How we use it: a block carries a sweeping `ward` + `section`; we pull that
-section's schedule and emit a cleaning **window** for every scheduled date that
-overlaps the requested interval.
+How we use it: the resolved block carries a `ward` + `section` (set by a
+point-in-polygon at resolution time); the client pulls that zone's row and emits
+a cleaning **window** for every scheduled date overlapping the requested
+interval. A block with no cached ward/section falls back to
+`intersects(the_geom, POINT(...))`.
 
 Known limitations:
 - **No time-of-day in the data.** Chicago posts sweeping as roughly 9 AM–3 PM;
   we use `09:00–15:00` America/Chicago as a documented default.
-- The block → `ward`/`section` mapping is a geometry lookup we have not built
-  yet. Development fixtures carry a hand-assigned section (Slice 5 automates it
-  from the sweeping-section polygons).
 - Schedule covers roughly April–November; outside that, "no rows" is reported as
   such, not as "no restriction forever".
 

@@ -88,12 +88,46 @@ reminders at **T‑3 days** and the **night before**. See `docs/monitoring.md`.
 
 * **Slice 1** ✅ request → agent → MCP → real data → visible result
 * **Slice 2** ✅ deterministic completeness + rule engine; per-run evidence store
-* **Slice 3** (now) the inversion above + snow/weather + events + nearby-parking
-  + FastAPI `/analyze` rework + React structured-selector UI + result UI
-* **Slice 4** proactive monitoring subsystem (watches, scheduled run, email,
-  urgent alerts, reminders)
-* **Slice 5** generated Chicago-wide block registry + more datasets + deploy +
-  polish
+* **Slice 3** ✅ the inversion above + snow/weather + events + nearby-parking
+  + FastAPI `/analyze` + React structured-selector UI + result UI
+* **Slice 4** ✅ proactive monitoring (watches, daily + hourly scheduled runs,
+  email, deterministic urgent alerts, reminders)
+* **Slice 5** address-based location layer (below) + deploy + polish
+
+## Location UX change (Slice 5) — exact address, not dropdowns
+
+The primary location input becomes an **exact Chicago address** — street number +
+street name + ZIP. The backend resolves it deterministically to the canonical
+street segment + side and associates it with every applicable City dataset.
+Neighborhood is *derived and displayed*, never rule input. See
+`docs/location-model.md`.
+
+```
+address + ZIP
+  → US Census geocoder (free, keyless, TIGER/Line): lat/lon, normalized street
+    parts, the block's address range, TIGER L/R side
+  → in-Chicago gate: City Boundary qqq8-j68g  intersects(point)
+  → canonical segment: Chicago Street Center Lines pr57-gg9e
+    (street + number in L/R range) -> geometry, topology nodes, both ranges
+  → side N/S/E/W: signed cross-product of the address point vs the segment +
+    segment bearing; cross-checked against the Chicago even/odd convention.
+    Ambiguous -> the UI asks the user to confirm; never guessed into the engine.
+  → cross streets: pr57-gg9e segments sharing the endpoint nodes
+  → street-sweeping ward/section/schedule: Street Sweeping Zones 2026
+    2r7q-emq3  intersects(point)   (replaces u5ai-3efk)
+  → neighborhood (display only): Community Areas igwz-8jzy  intersects(point)
+  → stable location_id  ->  ChicagoParkingLocation  ->  existing pipeline unchanged
+```
+
+**Reuse:** the resolver emits the existing `ChicagoParkingLocation` shape, so
+`app/rules`, `app/mcp`, `app/agent`, `app/monitor`, and the other services are
+unchanged. `get_location(location_id)` reads a self-populating `blocks.json`
+registry, lazily resolving on a miss. `street_cleaning.py` and
+`residential_zones.py` get small changes (new sweeping dataset; exact address).
+
+**If Census is unavailable:** fall back to `pr57-gg9e` by street + number
+(segment centroid as the point, parity convention for side). Documented, not a
+paid geocoder.
 
 ---
 

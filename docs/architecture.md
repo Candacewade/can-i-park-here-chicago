@@ -1,8 +1,10 @@
 # Architecture
 
 ```
-             React selectors (neighborhood → street → block → side → times → permit)
-                      │  typed ParkingRequest (location_id + interval + permit_zone)
+   React: exact address + ZIP  →  POST /api/locations/resolve
+     Census geocoder → in-Chicago gate → canonical segment → side (confirm in UI)
+     → cross streets · sweeping ward/section · neighborhood  →  location_id
+                      │  then: side + interval + permit  →  ParkingRequest
                       ▼
              FastAPI  POST /api/parking/analyze
                       │
@@ -67,8 +69,8 @@ never presented as success.
 | Path | Role | Slice |
 |---|---|---|
 | `backend/app/models/` | `ParkingRequest`, evidence schemas, `ParkingDecision` | 1–3 |
-| `backend/app/locations/` | canonical location registry (`location_id` → block) | 1 |
-| `backend/app/services/` | plain Python clients per City dataset + NWS weather; failure → `UNAVAILABLE` | 1–3 |
+| `backend/app/locations/` | address resolution (Census geocoder + Chicago geometry) → `ChicagoParkingLocation`; self-populating `blocks.json` registry | 1, **5** |
+| `backend/app/services/` | plain Python clients per City dataset + NWS weather; failure → `UNAVAILABLE` | 1–3, 5 |
 | `backend/app/rules/gather.py` | **the** deterministic required-evidence gather (runs every request) | 2→3 |
 | `backend/app/rules/completeness.py` | season-aware required categories + verification check | 2–3 |
 | `backend/app/rules/engine.py` | `evaluate_parking()` + hard urgent-alert flags | 2–3 |
