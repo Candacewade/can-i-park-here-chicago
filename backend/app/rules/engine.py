@@ -15,14 +15,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.config import CHICAGO_TZ, URGENT_WINDOW_HOURS
+from app.config import CHICAGO_TZ, DATASET_STREET_SWEEPING_ZONES, URGENT_WINDOW_HOURS
 from app.models.decision import DecisionReason, ParkingDecision, ParkingStatus
 from app.models.evidence import EvidenceStatus, ParkingEvidence
 from app.models.requests import ParkingRequest
 from app.rules.completeness import check_completeness
 
 _RESIDENTIAL_DS = "qiag-khha"
-_CLEANING_DS = "u5ai-3efk"
+_CLEANING_DS = DATASET_STREET_SWEEPING_ZONES  # the dataset street_cleaning.py actually queries
 _CLOSURE_DS = "rzy5-8tax"
 _SNOW_DS = "i6k4-giaj"
 

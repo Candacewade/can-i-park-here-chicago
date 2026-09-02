@@ -28,7 +28,6 @@ SOCRATA_TIMEOUT_SECONDS = float(os.environ.get("SOCRATA_TIMEOUT_SECONDS", "10"))
 
 # Dataset identifiers (Socrata "4x4" ids). Documented in docs/data-sources.md.
 DATASET_RESIDENTIAL_ZONES = "qiag-khha"   # Permit Parking Zones (street segments)
-DATASET_STREET_SWEEPING = "u5ai-3efk"     # Street Sweeping Schedule - 2026
 DATASET_STREET_CLOSURES = "rzy5-8tax"     # Transportation permits / street closures
 DATASET_SNOW_ROUTES = "i6k4-giaj"         # Snow Route Parking Restrictions (2-inch routes)
 # Nearby-event context reuses the permits dataset (Festival/Parade/Athletic/... rows
