@@ -29,7 +29,7 @@ def test_file_store_round_trip(tmp_path):
 
 
 def test_email_falls_back_to_outbox(tmp_path, monkeypatch):
-    monkeypatch.setattr(email_mod, "GMAIL_SENDER", None)
+    monkeypatch.setattr(email_mod, "GMAIL_ADDRESS", None)
     monkeypatch.setattr(email_mod, "GMAIL_APP_PASSWORD", None)
     monkeypatch.setattr(email_mod, "OUTBOX_DIR", tmp_path / "outbox")
 

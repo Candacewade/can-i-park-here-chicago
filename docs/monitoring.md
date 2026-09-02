@@ -124,7 +124,7 @@ degrades to templates.
 ## Email
 
 `app/services/email.py` — `smtplib` + STARTTLS to `smtp.gmail.com:587`, auth with
-the app-password secret. ~500/day is ample. No `GMAIL_SENDER` /
+the app-password secret. ~500/day is ample. No `GMAIL_ADDRESS` /
 `GMAIL_APP_PASSWORD` ⇒ the message is written to `backend/outbox/` instead.
 
 ## API surface

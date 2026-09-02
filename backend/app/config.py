@@ -134,10 +134,12 @@ NOTIFY_DATA_NAME = "notify_map.json"
 WATCH_NOTIFY_MAP = os.environ.get("WATCH_NOTIFY_MAP") or ""
 
 # Email (Gmail SMTP via an app password). No secret -> emails are written to
-# OUTBOX_DIR instead of sent.
+# OUTBOX_DIR instead of sent. GMAIL_SENDER is a legacy alias for GMAIL_ADDRESS.
 SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-GMAIL_SENDER = os.environ.get("GMAIL_SENDER") or None
+GMAIL_ADDRESS = (
+    os.environ.get("GMAIL_ADDRESS") or os.environ.get("GMAIL_SENDER") or None
+)
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD") or None
 OUTBOX_DIR = Path(os.environ.get("OUTBOX_DIR", str(BACKEND_ROOT / "outbox")))
 

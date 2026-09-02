@@ -27,15 +27,19 @@ services:
       - key: GH_DATA_TOKEN
         sync: false
       # Email (optional here -- the scheduled workflows are the main sender).
-      - key: GMAIL_SENDER
+      - key: GMAIL_ADDRESS
         sync: false
       - key: GMAIL_APP_PASSWORD
         sync: false
       # Optional. Guards POST /api/monitor/run.
       - key: MONITOR_TOKEN
         sync: false
-      # We deliberately do NOT set ANTHROPIC_API_KEY. The Claude Agent SDK needs
-      # the Claude Code CLI for subscription auth, which is not present on Render,
-      # so POST /api/parking/analyze returns 503 there (see docs/deployment.md).
-      # A future option: install @anthropic-ai/claude-code + set
-      # CLAUDE_CODE_OAUTH_TOKEN.
+      # Optional subscription OAuth token (from `claude setup-token`, NOT an API
+      # key). The Render Python runtime has no Claude Code CLI, so this is inert
+      # unless a future Docker deploy also installs @anthropic-ai/claude-code.
+      # Without the agent runtime, POST /api/parking/analyze still returns the
+      # full deterministic verdict + a template explanation (agent_available:
+      # false). See docs/deployment.md.
+      - key: CLAUDE_CODE_OAUTH_TOKEN
+        sync: false
+      # We deliberately do NOT set ANTHROPIC_API_KEY / enable paid API billing.

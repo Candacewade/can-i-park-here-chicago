@@ -20,7 +20,7 @@ permissions = **Contents: Read and write**. Keep the token.
 defines a free Python web service (`rootDir: backend`, `pip install -e .`,
 `uvicorn ...`, health check `/api/health`). In the dashboard set:
 `FRONTEND_ORIGINS`, `GH_DATA_REPO`, `GH_DATA_TOKEN` (and optionally
-`GMAIL_SENDER` / `GMAIL_APP_PASSWORD`, `MONITOR_TOKEN`). **Do not** set
+`GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD`, `MONITOR_TOKEN`). **Do not** set
 `ANTHROPIC_API_KEY`. Note the service URL.
 
 **3. Frontend → Vercel.** New Project → this repo → **Root Directory = `frontend`**
@@ -28,7 +28,7 @@ defines a free Python web service (`rootDir: backend`, `pip install -e .`,
 note the `*.vercel.app` URL and put it in Render's `FRONTEND_ORIGINS`.
 
 **4. Scheduled monitor** (GitHub Actions, already in the repo). Add repo secrets:
-`GH_DATA_REPO`, `GH_DATA_TOKEN`, `GMAIL_SENDER`, `GMAIL_APP_PASSWORD`, and
+`GH_DATA_REPO`, `GH_DATA_TOKEN`, `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, and
 optionally `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token` — subscription,
 not an API key). `.github/workflows/{monitor,urgent}.yml` then run on schedule.
 
@@ -111,7 +111,7 @@ Monitoring (GitHub Actions repo secrets):
 GH_DATA_REPO             <you>/can-i-park-here-chicago-data
 GH_DATA_TOKEN            fine-grained PAT, Contents:rw on the data repo only
 GMAIL_APP_PASSWORD       Gmail app password for the sender account
-GMAIL_SENDER             the sender address
+GMAIL_ADDRESS             the sender address
 CLAUDE_CODE_OAUTH_TOKEN  optional: `claude setup-token` output (subscription, NOT an API
                          key). Present -> scheduled emails are agent-composed. Absent ->
                          deterministic templates, alerts still fire.
