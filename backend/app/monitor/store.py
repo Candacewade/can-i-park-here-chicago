@@ -19,10 +19,14 @@ class WatchStore:
         self._backend = backend or data_store(WATCHES_DATA_NAME)
 
     def load(self) -> dict[str, Watch]:
-        return {
-            wid: Watch.model_validate(row)
-            for wid, row in self._backend.load().items()
-        }
+        raw = self._backend.load()
+        watches = {wid: Watch.model_validate(row) for wid, row in raw.items()}
+        # One-time, self-healing migration: watches created before manage_token
+        # existed get one minted by the model default; persist it once so every
+        # later read (and every email management link) sees the same value.
+        if any(not row.get("manage_token") for row in raw.values()):
+            self.save(watches)
+        return watches
 
     def save(self, watches: dict[str, Watch]) -> None:
         self._backend.save(

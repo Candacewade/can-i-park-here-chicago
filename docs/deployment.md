@@ -115,11 +115,18 @@ Backend (Render):
 
 ```
 FRONTEND_ORIGINS=https://<your-app>.vercel.app
+API_BASE_URL=https://<your-service>.onrender.com    # for unsubscribe links in emails
+APP_BASE_URL=https://<your-app>.vercel.app          # for "change spot" links in emails
 GH_DATA_REPO=<you>/can-i-park-here-chicago-data
 GH_DATA_TOKEN=github_pat_...          fine-grained, Contents:rw on that repo only
 # do NOT set ANTHROPIC_API_KEY
 # optional: SOCRATA_APP_TOKEN, AGENT_MODEL, CLAUDE_CODE_OAUTH_TOKEN
 ```
+
+`API_BASE_URL` / `APP_BASE_URL` are optional — without them the management links
+in monitoring emails still render but won't be click-through from a mail client.
+Set the same two on the **GitHub Actions** monitor secrets so the scheduled
+emails carry working links.
 
 Frontend (Vercel):
 
@@ -132,8 +139,13 @@ Monitoring (GitHub Actions repo secrets):
 ```
 GH_DATA_REPO             <you>/can-i-park-here-chicago-data
 GH_DATA_TOKEN            fine-grained PAT, Contents:rw on the data repo only
-GMAIL_APP_PASSWORD       Gmail app password for the sender account
-GMAIL_ADDRESS             the sender address
+GMAIL_APP_PASSWORD       app password for the dedicated SENDER account
+GMAIL_ADDRESS             the SENDER address (e.g. caniparkherechicago@gmail.com) -- the
+                         "From:". Recipients are whatever address each watch registers
+                         (e.g. a test user's wade.candace1@gmail.com); those live only in
+                         notify_map.json in the private data repo, never here.
+API_BASE_URL             optional: this backend's URL, for unsubscribe links in emails
+APP_BASE_URL             optional: the frontend URL, for "change parking spot" links
 CLAUDE_CODE_OAUTH_TOKEN  optional: `claude setup-token` output (subscription, NOT an API
                          key). Present -> scheduled emails are agent-composed. Absent ->
                          deterministic templates, alerts still fire.

@@ -22,8 +22,16 @@ def _new_id() -> str:
     return "wch_" + secrets.token_hex(6)
 
 
+def _new_manage_token() -> str:
+    """Opaque per-watch capability token. Grants management (unsubscribe / replace)
+    of THIS watch only. Not PII; lives in watches.json in the private data repo and
+    in the management links inside that watch's own emails."""
+    return secrets.token_urlsafe(24)
+
+
 class Watch(BaseModel):
     watch_id: str = Field(default_factory=_new_id)
+    manage_token: str = Field(default_factory=_new_manage_token)
     location_id: str
     start_time: datetime
     end_time: datetime

@@ -78,6 +78,17 @@ FRONTEND_ORIGINS = [
     o.strip() for o in os.environ.get("FRONTEND_ORIGINS", _default_origins).split(",") if o.strip()
 ]
 
+# Absolute base URLs for links embedded in monitoring emails.
+#   API_BASE_URL -- this backend's public origin; the unsubscribe endpoint lives here.
+#   APP_BASE_URL -- the React frontend; the "change parking spot" link points here.
+# When unset we fall back to the first non-localhost frontend origin (APP) / a
+# relative path (API); the links still render, just not click-through from email.
+API_BASE_URL = (os.environ.get("API_BASE_URL") or "").rstrip("/")
+_prod_origin = next(
+    (o for o in FRONTEND_ORIGINS if "localhost" not in o and "127.0.0.1" not in o), ""
+)
+APP_BASE_URL = (os.environ.get("APP_BASE_URL") or _prod_origin).rstrip("/")
+
 
 def resolve_claude_cli() -> str | None:
     """Locate the Claude Code CLI the Agent SDK shells out to for subscription auth.

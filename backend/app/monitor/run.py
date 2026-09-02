@@ -145,7 +145,9 @@ async def run_monitor(
             email = compose_email(watch, decision, msg, prose)
             dest = notify.get_email(watch.watch_id)
             if dest:
-                outcome.delivery = send_email(dest, email.subject, email.body_text)
+                outcome.delivery = send_email(
+                    dest, email.subject, email.body_text, email.body_html
+                )
                 outcome.sent_to_email = True
                 report.emails_sent += 1
                 for m in due:

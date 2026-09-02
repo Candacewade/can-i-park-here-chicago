@@ -20,6 +20,12 @@ services:
       # is already allowed by a regex in app/api/main.py.
       - key: FRONTEND_ORIGINS
         sync: false
+      # Absolute origins for the management links inside monitoring emails
+      # (unsubscribe -> this API; "change spot" -> the frontend). Optional.
+      - key: API_BASE_URL
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
       # Private data repo (watches / resolved blocks / notify map). See
       # docs/deployment.md. Without these the API uses an ephemeral local dir.
       - key: GH_DATA_REPO

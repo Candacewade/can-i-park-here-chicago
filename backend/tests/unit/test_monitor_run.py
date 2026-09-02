@@ -37,10 +37,13 @@ class MemStore:
 
 @pytest.fixture
 def sent(monkeypatch):
-    box: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        run_mod, "send_email", lambda to, subj, body: (box.append((to, subj)), "sent")[1]
-    )
+    box: list[tuple[str, str, str, str | None]] = []
+
+    def _send(to, subj, body, html=None):
+        box.append((to, subj, body, html))
+        return "sent"
+
+    monkeypatch.setattr(run_mod, "send_email", _send)
     monkeypatch.setattr(run_mod.notify, "get_email", lambda wid: "driver@example.com")
     # keep compose_email's alternatives lookup off the live City API
     from app.monitor import compose as compose_mod
@@ -106,7 +109,12 @@ async def test_urgent_alert_email(monkeypatch, sent):
     )
     report = await run_monitor(now=NOW, store=MemStore([_watch()]), use_agent=False)
     assert report.emails_sent == 1
-    assert sent[0][1].startswith("URGENT")
+    assert "Urgent parking alert" in sent[0][1]
+    # HTML + plain-text parts both present, real HTML hierarchy (not Markdown)
+    _, _, body_text, body_html = sent[0]
+    assert body_html and "<h1" in body_html and "<hr" in body_html
+    assert "##" not in body_html and "**" not in body_html
+    assert "<" not in body_text
 
 
 async def test_no_destination_still_updates_state_but_sends_nothing(monkeypatch):
@@ -151,7 +159,7 @@ async def test_urgent_only_sends_on_new_urgent_condition(monkeypatch, sent):
     report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False, urgent_only=True)
 
     assert report.emails_sent == 1
-    assert sent[0][1].startswith("URGENT")
+    assert "Urgent parking alert" in sent[0][1]
     assert any(k.startswith("urgent:") for k in w.notified)
 
 
@@ -184,3 +192,23 @@ async def test_use_agent_true_but_no_cli_falls_back(monkeypatch, sent):
     report = await run_monitor(now=NOW, store=MemStore([_watch()]), use_agent=True)
     assert report.agent_used is False
     assert report.emails_sent == 1   # deterministic template still sends
+
+
+# --- resolved / unsubscribed watches never notify -------------------
+
+async def test_resolved_watch_produces_no_daily_email(monkeypatch, sent):
+    _stub_decision(monkeypatch, ParkingStatus.NOT_LEGAL, urgent=True, reason="permit")
+    w = _watch(status=WatchStatus.RESOLVED)
+    report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
+    assert report.checked == 0
+    assert report.emails_sent == 0
+
+
+async def test_resolved_watch_produces_no_urgent_email(monkeypatch, sent):
+    _stub_decision(monkeypatch, ParkingStatus.NOT_LEGAL, urgent=True, reason="permit")
+    w = _watch(status=WatchStatus.RESOLVED)
+    report = await run_monitor(
+        now=NOW, store=MemStore([w]), use_agent=False, urgent_only=True
+    )
+    assert report.checked == 0
+    assert report.emails_sent == 0

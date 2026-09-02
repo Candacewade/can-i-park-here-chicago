@@ -22,7 +22,7 @@ from app.config import (
 def send_email(to: str, subject: str, body_text: str, body_html: str | None = None) -> str:
     """Returns 'sent' or a filesystem path (when written to the outbox)."""
     if not (GMAIL_ADDRESS and GMAIL_APP_PASSWORD):
-        return _to_outbox(to, subject, body_text)
+        return _to_outbox(to, subject, body_text, body_html)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -39,9 +39,11 @@ def send_email(to: str, subject: str, body_text: str, body_html: str | None = No
     return "sent"
 
 
-def _to_outbox(to: str, subject: str, body_text: str) -> str:
+def _to_outbox(to: str, subject: str, body_text: str, body_html: str | None = None) -> str:
     OUTBOX_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(tz=CHICAGO_TZ).strftime("%Y%m%dT%H%M%S")
     path = OUTBOX_DIR / f"{ts}_{to.replace('@', '_at_')}.txt"
     path.write_text(f"To: {to}\nSubject: {subject}\n\n{body_text}\n")
+    if body_html:
+        path.with_suffix(".html").write_text(body_html)
     return str(path)

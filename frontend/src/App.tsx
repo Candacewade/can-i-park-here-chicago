@@ -3,15 +3,19 @@ import { analyze, fetchExamples, resolveAddress } from "./api";
 import { AddressForm } from "./components/AddressForm";
 import { AgentInspector } from "./components/AgentInspector";
 import { BlockConfirm } from "./components/BlockConfirm";
+import { MonitorPanel } from "./components/MonitorPanel";
 import { ResultCard } from "./components/ResultCard";
 import type {
   AddressInput,
   AnalyzeResponse,
   ExampleAddress,
+  MonitorState,
   ResolveResponse,
   WhenInput,
 } from "./types";
 import "./styles.css";
+
+const MONITOR_KEY = "ciph_monitor";
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -29,6 +33,34 @@ function defaultWhen(): WhenInput {
   };
 }
 
+function loadMonitor(): MonitorState | null {
+  try {
+    const raw = localStorage.getItem(MONITOR_KEY);
+    if (raw) return JSON.parse(raw) as MonitorState;
+  } catch {
+    /* private mode / blocked storage -> just no persisted monitor */
+  }
+  // arrived from an email "change parking spot" link?
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const watchId = q.get("manage");
+    const token = q.get("token");
+    if (watchId && token) return { watchId, token };
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function saveMonitor(m: MonitorState | null) {
+  try {
+    if (m) localStorage.setItem(MONITOR_KEY, JSON.stringify(m));
+    else localStorage.removeItem(MONITOR_KEY);
+  } catch {
+    /* best effort */
+  }
+}
+
 export default function App() {
   const [examples, setExamples] = useState<ExampleAddress[]>([]);
   const [address, setAddress] = useState<AddressInput>({ number: "", street: "", zip: "" });
@@ -41,14 +73,42 @@ export default function App() {
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
 
+  const [monitor, setMonitor] = useState<MonitorState | null>(() => loadMonitor());
+  const [changing, setChanging] = useState<boolean>(() => {
+    try {
+      return new URLSearchParams(window.location.search).has("manage");
+    } catch {
+      return false;
+    }
+  });
+
   useEffect(() => {
     fetchExamples().then(setExamples).catch(() => setExamples([]));
+    // clean the deep-link params out of the URL bar
+    try {
+      if (window.location.search) {
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    } catch {
+      /* ignore */
+    }
   }, []);
+
+  const updateMonitor = (m: MonitorState | null) => {
+    setMonitor(m);
+    saveMonitor(m);
+  };
 
   const locationId = useMemo(
     () => resolved?.side_options.find((o) => o.side === side)?.location_id ?? null,
     [resolved, side],
   );
+
+  const blockSummary = useMemo(() => {
+    if (!resolved) return "";
+    const s = resolved.side_options.find((o) => o.side === side);
+    return s?.summary ?? resolved.matched_address ?? "";
+  }, [resolved, side]);
 
   const doResolve = async () => {
     setResolving(true);
@@ -91,6 +151,8 @@ export default function App() {
     }
   };
 
+  const showMonitor = (result || monitor) && !analyzing && !resolving;
+
   return (
     <div className="page">
       <header>
@@ -100,6 +162,13 @@ export default function App() {
           engine decides legality; an AI agent investigates the edges and explains.
         </p>
       </header>
+
+      {monitor && changing && !resolved && (
+        <div className="card banner">
+          You're changing your monitored parking spot. Enter the new address below,
+          run the check, then confirm the move.
+        </div>
+      )}
 
       <div className="layout">
         <div>
@@ -145,6 +214,23 @@ export default function App() {
               <ResultCard result={result} />
               <AgentInspector result={result} />
             </>
+          )}
+          {showMonitor && (
+            <MonitorPanel
+              locationId={locationId}
+              blockSummary={blockSummary}
+              throughDisplay={result?.end_time_display ?? null}
+              when={when}
+              monitor={monitor}
+              changing={changing}
+              onChange={updateMonitor}
+              onStartChanging={() => {
+                setChanging(true);
+                setResolved(null);
+                setResult(null);
+              }}
+              onCancelChanging={() => setChanging(false)}
+            />
           )}
         </div>
       </div>

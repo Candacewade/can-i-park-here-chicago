@@ -128,8 +128,41 @@ class CreateWatchRequest(BaseModel):
 
 class CreateWatchResponse(BaseModel):
     watch_id: str
+    # Opaque per-watch capability token. The frontend keeps this (localStorage)
+    # to later stop or move the watch; it is also embedded in that watch's
+    # own email management links. Not PII.
+    manage_token: str
     email_registered: bool
     note: str
+
+
+class ReplaceWatchRequest(BaseModel):
+    """Move the monitored spot: resolve the old watch, create a new one. Atomic."""
+
+    token: str = Field(min_length=1)
+    location_id: str = Field(min_length=1)
+    start_time: datetime
+    end_time: datetime
+    permit_zone: str | None = None
+    # Optional: reuse the recipient already on file for the old watch when omitted.
+    email: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("not a valid email address")
+        return v
+
+
+class ReplaceWatchResponse(BaseModel):
+    old_watch_id: str
+    watch_id: str
+    manage_token: str
+    email_registered: bool
 
 
 class WatchView(BaseModel):

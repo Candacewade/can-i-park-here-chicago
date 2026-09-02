@@ -66,6 +66,29 @@ export interface AnalyzeResponse {
   trace: ToolCallView[];
 }
 
+export interface CreateWatchResponse {
+  watch_id: string;
+  manage_token: string;
+  email_registered: boolean;
+  note: string;
+}
+
+export interface ReplaceWatchResponse {
+  old_watch_id: string;
+  watch_id: string;
+  manage_token: string;
+  email_registered: boolean;
+}
+
+/** Lightweight, persisted in localStorage. No account, no server session. */
+export interface MonitorState {
+  watchId: string;
+  token: string;
+  email?: string;
+  locationSummary?: string;
+  throughDisplay?: string;
+}
+
 export interface AddressInput {
   number: string;
   street: string;

@@ -108,6 +108,24 @@ button.primary:disabled { opacity: .5; cursor: default; }
 
 footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
 
+/* email monitoring */
+.banner { background: #eef4fd; border-color: #cfe0f7; font-size: 13px; }
+.card.monitor h3 { font-size: 15px; margin: 0 0 10px; }
+.card.monitor.active { border-color: var(--accent); }
+.card.monitor p { margin: 4px 0; font-size: 14px; }
+.mon-loc { font-weight: 600; }
+.mon-ok { color: var(--legal); font-size: 14px; }
+.mon-err { color: var(--notlegal); font-size: 13px; }
+.mon-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+button.secondary {
+  font: inherit; font-weight: 600; padding: 10px 16px; border: 1px solid var(--accent);
+  border-radius: 8px; background: #fff; color: var(--accent); cursor: pointer;
+}
+button.secondary.wide { width: 100%; }
+button.secondary:disabled { opacity: .5; cursor: default; }
+button.link.danger { color: var(--notlegal); }
+.card.monitor .mon-actions .primary { width: auto; margin-top: 0; }
+
 /* Slice 5 -- address form + block confirm */
 .hint { color: var(--muted); font-size: 13px; margin: -4px 0 12px; }
 .examples { font-size: 12px; color: var(--muted); margin-top: 10px; }

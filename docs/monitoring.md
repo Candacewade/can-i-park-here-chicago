@@ -11,10 +11,15 @@ email, urgent alerts when a time-sensitive risk appears, and move reminders.
 | field | |
 |---|---|
 | `watch_id` | stable, anonymous — `wch_<12 hex>` |
+| `manage_token` | opaque per-watch capability (`secrets.token_urlsafe`). The credential for unsubscribe / replace; embedded in that watch's own email links. Not PII. |
 | `location_id`, `start_time`, `end_time`, `permit_zone` | the request to monitor |
-| `status` | `active` / `resolved` (moved / cancelled) / `expired` (`end_time` passed) |
+| `status` | `active` / `resolved` (moved / cancelled / unsubscribed / replaced) / `expired` (`end_time` passed) |
 | `created_at`, `last_decision`, `last_checked_at` | |
 | `notified` | keys of messages already sent: `morning:<date>`, `urgent:<cause-hash>`, `reminder:3d`, `reminder:night` |
+
+**Only an `active` watch ever notifies.** `resolved` and `expired` watches are
+skipped by both scheduled passes — unsubscribing or replacing a spot stops all
+future email immediately.
 
 ## Persistence — `$0`, no database, **no user data in the public repo**
 
@@ -24,7 +29,7 @@ All runtime user data lives in a **separate private GitHub repo**
 
 | file (in the private repo) | contents |
 |---|---|
-| `watches.json` | anonymous `watch_id` + block + interval + `status` + `notified` (no email) |
+| `watches.json` | anonymous `watch_id` + `manage_token` + block + interval + `status` + `notified` (no email) |
 | `blocks.json` | resolved-address cache (`location_id` → block) |
 | `notify_map.json` | `watch_id → {email}` |
 
@@ -125,17 +130,82 @@ degrades to templates.
 
 `app/services/email.py` — `smtplib` + STARTTLS to `smtp.gmail.com:587`, auth with
 the app-password secret. ~500/day is ample. No `GMAIL_ADDRESS` /
-`GMAIL_APP_PASSWORD` ⇒ the message is written to `backend/outbox/` instead.
+`GMAIL_APP_PASSWORD` ⇒ the message is written to `backend/outbox/` (`.txt` +
+`.html`) instead.
+
+Every message is **`multipart/alternative`**: a `text/plain` fallback and a
+polished `text/html` body. `app/monitor/email_render.py` renders a typed node
+list (`H1`/`H2`/`P`/`Panel`/`Finding`/`Rule`/`Actions`) to *both* — email-safe
+inline CSS, semantic tags, a constrained 600px width, no images, no JS, real
+`<h1>`/`<strong>`/`<hr>` hierarchy (never Markdown). `app/monitor/compose.py`
+builds that node list: a **daily** template and an **urgent** template, each a
+single cohesive document. The deterministic verdict is the skeleton; agent prose,
+when present, fills exactly one "context / alternatives" section — it is never
+appended as a second copy of the explanation. For `LEGAL_UNTIL` the restriction
+that actually sets `move_by` is the one highlighted; later windows are summarised
+in one line, not enumerated. Dynamic text is HTML-escaped; link params are
+URL-encoded.
 
 ## API surface
 
 ```
-POST   /api/watches        { location_id, start_time, end_time, permit_zone, email }
-                           -> { watch_id, email_registered, note }
-GET    /api/watches/{id}    state only — no email echoed back
-DELETE /api/watches/{id}    -> status: resolved
-POST   /api/monitor/run     run the pass now (X-Monitor-Token if MONITOR_TOKEN set)
+POST   /api/watches                    { location_id, start_time, end_time, permit_zone, email }
+                                       -> { watch_id, manage_token, email_registered, note }
+GET    /api/watches/{id}?token=...     state only — no email echoed back; token-gated
+DELETE /api/watches/{id}?token=...     stop this watch -> status: resolved; token-gated
+GET    /api/watches/{id}/unsubscribe?token=...   the link in every email -> confirmation page ONLY (no mutation)
+POST   /api/watches/{id}/unsubscribe?token=...   the page's "Stop monitoring" button -> resolve + drop email
+POST   /api/watches/{id}/replace       { token, location_id, start_time, end_time, permit_zone, email? }
+                                       -> resolve old + create new in ONE store write
+                                       -> { old_watch_id, watch_id, manage_token, email_registered }
+POST   /api/monitor/run                run the pass now (X-Monitor-Token if MONITOR_TOKEN set)
 ```
+
+### Manage links & security
+
+`watch_id` alone grants **nothing**: `GET`, `DELETE`, unsubscribe and `replace`
+all require the watch's `manage_token`, checked with `secrets.compare_digest`; a
+missing/wrong token returns the same `404` as an unknown id. The token is
+124 bits of `token_urlsafe` entropy — not guessable — and scoped to one watch, so
+it can never touch another. It lives in `watches.json` (private repo) and in that
+watch's own email links; it is not a global secret and carries no personal data.
+
+**The email unsubscribe link (`GET`) never mutates.** It only validates the
+token and renders a *"Stop monitoring this parking spot?"* confirmation page with
+a `Stop monitoring` / `Keep monitoring` choice. Only the explicit `POST` from
+that page (same token, `?token=` query, empty body — no `multipart` dependency)
+resolves the watch and drops its `notify_map` entry. A link scanner or client
+prefetch of the `GET` therefore cannot unsubscribe anyone.
+
+**Backwards compatibility.** Watches written before `manage_token` existed load
+fine — `Watch.model_validate` mints one from the field default. `WatchStore.load()`
+detects rows whose stored JSON lacked the key and re-saves the dict **once**, so
+the minted token is stable for every later read and every email link. No manual
+migration; no crash. (`test_pre_existing_watch_without_manage_token_is_backfilled`.)
+
+**Change parking spot** = `POST /api/watches/{id}/replace`. The old watch flips to
+`resolved` and the new one is written in a **single `store.save`**, so a partial
+failure cannot leave both active. The new destination is registered *before* the
+old mapping is forgotten (a crash between them still can't email — the old watch
+is already `resolved`). The new watch starts with an empty `notified` list, so
+dedup history never bleeds across locations. The recipient is reused from the old
+mapping unless the request overrides `email`.
+
+`API_BASE_URL` / `APP_BASE_URL` (env) are the absolute origins used to build the
+email links. Unset ⇒ the links still render but aren't click-through from a mail
+client; `APP_BASE_URL` falls back to the first non-localhost `FRONTEND_ORIGINS`.
+
+### Frontend
+
+`frontend/src/components/MonitorPanel.tsx` — after a parking result, a
+**🔔 Monitor this parking spot** CTA → email field → `POST /api/watches`. The
+`{watch_id, manage_token, email}` triple is kept in `localStorage`
+(`ciph_monitor`) — no account. An **active** panel then shows the recipient,
+block and through-date with **Change parking spot** / **Stop monitoring**.
+"Change" clears the address form; after the user resolves + checks a new block a
+**Confirm move** button calls `replace`. The email "change parking spot" link
+deep-links back as `/?manage=<id>&token=<token>` (params are stripped from the
+URL bar on load).
 
 ## Production flows
 

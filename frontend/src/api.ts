@@ -1,7 +1,9 @@
 import type {
   AddressInput,
   AnalyzeResponse,
+  CreateWatchResponse,
   ExampleAddress,
+  ReplaceWatchResponse,
   ResolveResponse,
   WhenInput,
 } from "./types";
@@ -23,6 +25,15 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Naive local datetime strings; the backend interprets them as America/Chicago. */
+export function whenTimes(when: WhenInput) {
+  return {
+    start_time: `${when.start_date}T${when.start_time}:00`,
+    end_time: `${when.end_date}T${when.end_time}:00`,
+    permit_zone: when.permit_zone.trim() || null,
+  };
+}
+
 export function fetchExamples(): Promise<ExampleAddress[]> {
   return fetch(`${BASE}/api/locations/examples`).then((r) => json<ExampleAddress[]>(r));
 }
@@ -41,15 +52,51 @@ export function resolveAddress(addr: AddressInput, side?: string): Promise<Resol
 }
 
 export function analyze(locationId: string, when: WhenInput): Promise<AnalyzeResponse> {
-  const payload = {
-    location_id: locationId,
-    start_time: `${when.start_date}T${when.start_time}:00`,
-    end_time: `${when.end_date}T${when.end_time}:00`,
-    permit_zone: when.permit_zone.trim() || null,
-  };
   return fetch(`${BASE}/api/parking/analyze`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ location_id: locationId, ...whenTimes(when) }),
   }).then((r) => json<AnalyzeResponse>(r));
+}
+
+// --- email monitoring -------------------------------------------------
+
+export function createWatch(input: {
+  location_id: string;
+  when: WhenInput;
+  email: string;
+}): Promise<CreateWatchResponse> {
+  return fetch(`${BASE}/api/watches`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      location_id: input.location_id,
+      email: input.email.trim(),
+      ...whenTimes(input.when),
+    }),
+  }).then((r) => json<CreateWatchResponse>(r));
+}
+
+export function stopWatch(watchId: string, token: string): Promise<unknown> {
+  return fetch(
+    `${BASE}/api/watches/${encodeURIComponent(watchId)}?token=${encodeURIComponent(token)}`,
+    { method: "DELETE" },
+  ).then((r) => json<unknown>(r));
+}
+
+export function replaceWatch(
+  watchId: string,
+  token: string,
+  input: { location_id: string; when: WhenInput; email?: string },
+): Promise<ReplaceWatchResponse> {
+  return fetch(`${BASE}/api/watches/${encodeURIComponent(watchId)}/replace`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      token,
+      location_id: input.location_id,
+      email: input.email?.trim() || null,
+      ...whenTimes(input.when),
+    }),
+  }).then((r) => json<ReplaceWatchResponse>(r));
 }
