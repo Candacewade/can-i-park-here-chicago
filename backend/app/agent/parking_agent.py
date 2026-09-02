@@ -114,12 +114,20 @@ def _build_options() -> ClaudeAgentOptions:
             "PATH, or set CLAUDE_CODE_CLI_PATH. The Agent SDK uses it for "
             "subscription-backed auth (we do not use ANTHROPIC_API_KEY)."
         )
+    # Forward the subscription OAuth token (CI / a headless server) to the CLI
+    # subprocess. On a dev machine this is unset and the CLI uses stored creds.
+    # We never set ANTHROPIC_API_KEY.
+    cli_env: dict[str, str] = {}
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        cli_env["CLAUDE_CODE_OAUTH_TOKEN"] = os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
+
     return ClaudeAgentOptions(
         model=AGENT_MODEL,
         cli_path=cli,
         system_prompt=SYSTEM_PROMPT_V2,
         setting_sources=[],  # do not inherit this repo's CLAUDE.md / settings
         cwd=str(BACKEND_ROOT),
+        env=cli_env,
         mcp_servers={
             MCP_SERVER_NAME: {
                 "type": "stdio",
