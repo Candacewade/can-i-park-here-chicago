@@ -3,12 +3,12 @@
 I built a Chicago parking assistant that uses an **AI agent** to orchestrate
 multiple authoritative parking-data tools exposed through a **custom MCP
 server**. The system keeps legal parking decisions inside **deterministic rule
-logic** rather than allowing the LLM to invent regulations. An **agent
-evaluation suite** (tool selection, missing-data handling, hallucination
-prevention) is designed and is the next slice.
+logic** rather than allowing the LLM to invent regulations, and includes an
+**agent evaluation suite** that tests tool selection, missing-data handling, and
+hallucination prevention against pinned City data.
 
-> Status: **Slice 5 complete — deployable.** A deterministic core (real City of
-> Chicago Open Data → completeness check → rule engine) always returns
+> Status: **Slices 1–6 complete — deployable.** A deterministic core (real City
+> of Chicago Open Data → completeness check → rule engine) always returns
 > `LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN` + `move_by` + a hard urgent-alert
 > flag on its own. The Claude agent wraps that core with optional
 > **investigation** (snow/weather via NWS, nearby events, unusual closures,
@@ -73,5 +73,5 @@ CLI); deploy notes are in [docs/deployment.md](docs/deployment.md).
 | 2 | deterministic completeness check + `evaluate_parking()`; per-run evidence store | ✅ |
 | 3 | agent-role inversion (deterministic core always runs) + snow/weather + events + nearby-parking + FastAPI `/analyze` + React UI | ✅ |
 | 4 | proactive monitoring: watches, daily + hourly runs, deterministic urgent alerts, move reminders | ✅ |
-| 5 | exact-address location resolution (Census geocoder + City geometry); deploy config (Render + Vercel); private data repo | ✅ |
-| 6 | agent evaluation suite ([docs/evaluations.md](docs/evaluations.md)) | next |
+| 5 | exact-address location resolution (Census geocoder + City geometry); deploy config; private data repo; graceful degradation without Claude | ✅ |
+| 6 | agent evaluation suite ([docs/evaluations.md](docs/evaluations.md)) | ✅ |

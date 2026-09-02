@@ -27,12 +27,13 @@ tools store their output in `app.evidence_store` under it.
 
 ## `evaluate_parking_request` is authoritative and independent
 
-It never re-fetches from the agent and never accepts evidence arguments. It
-gathers the required categories itself every call and merges only the optional
-evidence the investigation tools stored under this `run_id`. The orchestrator
-also runs this same evaluation once more after the agent finishes — that
-post-agent result is what the API returns, so a misbehaving agent cannot change
-the verdict.
+It never accepts evidence arguments. It gathers the required categories itself
+every call and merges only the optional evidence the investigation tools stored
+under this `run_id`. After the agent finishes, the orchestrator replays that
+optional evidence from the tool traces into the parent process's store (the
+tools ran in the MCP subprocess, a separate store) and runs this same
+evaluation once more — that post-agent result is what the API returns, so a
+misbehaving agent cannot change the verdict.
 
 ## Weather / snow
 

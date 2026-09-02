@@ -21,6 +21,9 @@ def _isolate_user_data(tmp_path, monkeypatch):
     registry.reset_cache()
     yield
     registry.reset_cache()
+    from app.testing.fixtures import uninstall_fixture_data
+
+    uninstall_fixture_data()
 
 
 class FakeSocrataClient:

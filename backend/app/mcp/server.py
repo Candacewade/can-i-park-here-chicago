@@ -149,4 +149,12 @@ def list_supported_locations() -> dict:
 
 
 if __name__ == "__main__":
+    import os
+
+    _fixtures = os.environ.get("EVAL_FIXTURES")
+    if _fixtures:  # eval mode only -- serve canned data instead of hitting the network
+        from app.testing.fixtures import install_fixture_data
+
+        install_fixture_data(_fixtures)
+
     mcp.run("stdio")

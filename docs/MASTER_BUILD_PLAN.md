@@ -102,8 +102,9 @@ reminders at **T‑3 days** and the **night before**. See `docs/monitoring.md`.
 * **Slice 4** ✅ proactive monitoring (watches, daily + hourly scheduled runs,
   email, deterministic urgent alerts, reminders)
 * **Slice 5** ✅ address-based location layer (below); private data repo;
-  `render.yaml` + `frontend/vercel.json` + deploy checklist; CI covers frontend
-* **Slice 6** agent evaluation suite -- `docs/evaluations.md`
+  `render.yaml` + `frontend/vercel.json` + deploy checklist; CI covers frontend;
+  `/api/parking/analyze` degrades to deterministic-only when Claude is absent
+* **Slice 6** ✅ agent evaluation suite -- `backend/evals/`, `docs/evaluations.md`
 
 ## Location UX change (Slice 5) — exact address, not dropdowns
 

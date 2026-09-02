@@ -69,10 +69,12 @@ def get_residential_zone_evidence(
         )
 
     direction = (location.street_direction or "").upper()
+    want_street = location.base_street_name.upper()
     matches = [
         row
         for row in rows
-        if _range_contains(row, location.representative_address)
+        if (row.get("street_name") or "").strip().upper() == want_street
+        and _range_contains(row, location.representative_address)
         and _parity_matches(row.get("odd_even"), location)
         and (not direction or (row.get("street_direction") or "").upper() == direction)
     ]

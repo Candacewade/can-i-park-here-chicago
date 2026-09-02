@@ -69,3 +69,35 @@ def test_deterministic_explanation_handles_each_status():
         payload = {"decision": {**_CORE["decision"], "status": status}}
         text = pa._deterministic_explanation(payload)
         assert text and "rule engine" in text
+
+
+def test_replay_agent_evidence_reinjects_into_parent_store():
+    """The agent gathers optional evidence in the MCP subprocess; the parent's
+    post-agent re-eval must see it via _replay_agent_evidence."""
+    from app import evidence_store
+    from app.agent.parking_agent import AgentRunResult, ToolCallTrace, _replay_agent_evidence
+    from app.models.requests import ParkingRequest
+
+    evidence_store.reset()
+    now = datetime.now(tz=CHICAGO_TZ)
+    req = ParkingRequest(location_id="x", start_time=now, end_time=now + timedelta(hours=12))
+    result = AgentRunResult(request=req, final_text="", run_id="r-replay")
+    result.tool_calls = [
+        ToolCallTrace(
+            order=1, name="mcp__chicago-parking__get_weather_outlook",
+            arguments={
+                "run_id": "r-replay", "location_id": "x",
+                "start_time": req.start_time.isoformat(), "end_time": req.end_time.isoformat(),
+            },
+            result={"status": "VERIFIED", "expected_snow_inches": 3.4},
+        )
+    ]
+
+    _replay_agent_evidence(result)
+
+    got = evidence_store.verdict_relevant_evidence(
+        "r-replay", location_id="x", start=req.start_time, end=req.end_time
+    )
+    assert evidence_store.WEATHER in got
+    assert got[evidence_store.WEATHER].expected_snow_inches == 3.4
+    evidence_store.reset()

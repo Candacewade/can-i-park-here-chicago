@@ -61,10 +61,14 @@ core first and returns it unconditionally. If the CLI is missing it sets
 1. run the deterministic core → `ParkingDecision` + evidence + hard-alert flags
    (this is the answer; it is what `/api/parking/analyze` always returns)
 2. if the Claude runtime is present: hand the decision to the agent as context,
-   with a fresh `run_id`; the agent investigates (optional) and composes prose;
-   re-evaluate deterministically merging any evidence it stored
+   with a fresh `run_id`; the agent investigates (optional) and composes prose
 3. else: deterministic-template explanation, empty trace
 4. capture every tool call (name, args, result, latency, order) for the trace
+5. **replay** the verdict-relevant evidence the agent gathered (weather, events,
+   off-season snow) from the tool traces into *this* process's evidence store —
+   the agent's tools ran in the MCP **subprocess** whose in-process store the
+   parent does not share — then re-run the deterministic pipeline as the
+   authoritative `result.decision`
 
 `ClaudeAgentOptions`: `setting_sources=[]` (no repo `CLAUDE.md`), a `can_use_tool`
 callback that allows **only** `mcp__chicago-parking__*`, `disallowed_tools` for

@@ -15,6 +15,7 @@ every tool call for the trace and surface the final deterministic decision.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import uuid
@@ -36,9 +37,15 @@ from claude_agent_sdk import (
     query,
 )
 
+from app import evidence_store
 from app.agent.instructions import SYSTEM_PROMPT_V2
 from app.config import AGENT_MODEL, BACKEND_ROOT, resolve_claude_cli
 from app.mcp import handlers
+from app.models.evidence import (
+    EventImpactEvidence,
+    SnowRouteEvidence,
+    WeatherOutlookEvidence,
+)
 from app.models.requests import ParkingRequest
 
 MCP_SERVER_NAME = "chicago-parking"
@@ -118,7 +125,12 @@ def _build_options() -> ClaudeAgentOptions:
                 "type": "stdio",
                 "command": sys.executable,
                 "args": ["-m", "app.mcp.server"],
-                "env": {"PYTHONPATH": str(BACKEND_ROOT)},
+                "env": {
+                    "PYTHONPATH": str(BACKEND_ROOT),
+                    # forwarded so the MCP subprocess serves the same canned data
+                    **({"EVAL_FIXTURES": os.environ["EVAL_FIXTURES"]}
+                       if os.environ.get("EVAL_FIXTURES") else {}),
+                },
             }
         },
         # No allowed_tools entries: every tool call falls through to can_use_tool,
@@ -292,9 +304,10 @@ async def run_parking_agent(
             if getattr(message, "result", None):
                 result.final_text = message.result
 
-    # Authoritative final decision: re-run deterministically, merging whatever
-    # optional evidence the agent's tools stored for this run. Independent of
-    # whether the agent itself called evaluate_parking_request.
+    # Authoritative final decision: re-run the deterministic pipeline here,
+    # replaying the optional evidence the agent gathered in the MCP subprocess
+    # (whose in-process evidence store this parent process does not share).
+    _replay_agent_evidence(result)
     result.decision = _core_decision(request, run_id)
     return result
 
@@ -306,6 +319,36 @@ _INVESTIGATION_KEYS = {
     "get_closure_detail": "closure_detail",
     "find_legal_parking_nearby": "nearby",
 }
+
+# Verdict-relevant investigation tools -> (evidence-store key, evidence model)
+_REPLAY: dict[str, tuple[str, Any]] = {
+    "get_weather_outlook": (evidence_store.WEATHER, WeatherOutlookEvidence),
+    "get_snow_route_status": (evidence_store.SNOW_ROUTE, SnowRouteEvidence),
+    "get_nearby_events": (evidence_store.EVENTS, EventImpactEvidence),
+}
+
+
+def _replay_agent_evidence(result: AgentRunResult) -> None:
+    """The agent's tools ran in the MCP subprocess, whose evidence store this
+    parent process does not share. Re-record their verdict-relevant results so
+    the authoritative post-agent re-evaluation sees what the agent gathered."""
+    for trace in result.tool_calls:
+        spec = _REPLAY.get(trace.short_name())
+        if spec is None or not isinstance(trace.result, dict) or "status" not in trace.result:
+            continue
+        key, model = spec
+        args = trace.arguments
+        try:
+            evidence = model.model_validate(trace.result)
+            evidence_store.record(
+                result.run_id, key,
+                location_id=args["location_id"],
+                evidence=evidence,
+                start=handlers._parse_dt(args["start_time"]) if args.get("start_time") else None,
+                end=handlers._parse_dt(args["end_time"]) if args.get("end_time") else None,
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
 
 
 def _record_evidence(result: AgentRunResult, trace: ToolCallTrace) -> None:
