@@ -19,7 +19,7 @@ import json
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.agent.parking_agent import AgentAuthError, AgentRunResult, run_parking_agent
+from app.agent.parking_agent import AgentRunResult, run_parking_agent
 from app.api.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -56,7 +56,7 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "agent_runtime": resolve_claude_cli() is not None}
+    return {"status": "ok", "agent_available": resolve_claude_cli() is not None}
 
 
 _EXAMPLES = [
@@ -146,6 +146,7 @@ def _to_response(result: AgentRunResult) -> AnalyzeResponse:
             completeness.get("complete", status is not ParkingStatus.UNKNOWN)
         ),
         core_status=core_status,
+        agent_available=result.agent_available,
         run_id=result.run_id,
         model=result.model,
         duration_ms=result.duration_ms,
@@ -155,15 +156,10 @@ def _to_response(result: AgentRunResult) -> AnalyzeResponse:
 
 @app.post("/api/parking/analyze", response_model=AnalyzeResponse)
 async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
-    if resolve_claude_cli() is None:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "The runtime agent is unavailable: the Claude Code CLI "
-                "(subscription auth) was not found in this environment. See "
-                "docs/deployment.md."
-            ),
-        )
+    """Always returns a deterministic parking decision. When the Claude runtime
+    is available it also runs the agent for optional investigation + richer
+    prose; when it is not, `agent_available` is false and the explanation is a
+    deterministic template. The checker never goes down with the AI layer."""
     try:
         request = ParkingRequest(
             location_id=payload.location_id,
@@ -174,11 +170,7 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    try:
-        result = await run_parking_agent(request)
-    except AgentAuthError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
+    result = await run_parking_agent(request)  # degrades gracefully, never raises here
     return _to_response(result)
 
 

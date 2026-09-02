@@ -54,12 +54,19 @@ status.
 ParkingRequest
   → deterministic core: gather (always) → completeness → evaluate_parking()
                                         → ParkingDecision + hard alert flags
-  → agent investigation wing (optional): snow/weather, events, closure detail,
-                                         nearby alternatives  → more evidence
-                                         → (re-evaluate if a trigger promoted a category)
-  → agent communication wing: prioritize, explain, compose email/alerts
+  → IF the Claude runtime is available:
+      agent investigation wing (optional): snow/weather, events, closure detail,
+                                           nearby alternatives  → more evidence
+                                           → (re-evaluate if a trigger promoted a category)
+      agent communication wing: prioritize, explain, compose email/alerts
+    ELSE:
+      deterministic-template explanation (agent_available: false)
   → API response  /  (Slice 4) scheduled monitor emails
 ```
+
+`/api/parking/analyze` **never** fails just because the agent runtime is absent:
+the deterministic verdict always returns. The agent adds investigation + prose
+when it can.
 
 ## Proactive monitoring (Slice 4)
 

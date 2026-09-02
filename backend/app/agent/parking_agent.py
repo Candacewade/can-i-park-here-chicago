@@ -46,7 +46,11 @@ _TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 
 
 class AgentAuthError(RuntimeError):
-    """The Claude Code CLI (subscription auth) could not be located."""
+    """The Claude Code CLI (subscription auth) could not be located.
+
+    Only raised when the agent is explicitly required (``require_agent=True``).
+    The default path degrades to a deterministic-only result instead.
+    """
 
 
 @dataclass
@@ -71,6 +75,7 @@ class AgentRunResult:
     evidence: dict[str, Any] = field(default_factory=dict)
     core_decision: dict[str, Any] | None = None   # deterministic, pre-agent
     decision: dict[str, Any] | None = None        # deterministic, post-agent (authoritative)
+    agent_available: bool = True                  # False -> deterministic-only run
     duration_ms: float | None = None
     num_turns: int | None = None
     model: str = AGENT_MODEL
@@ -191,15 +196,63 @@ def _core_decision(request: ParkingRequest, run_id: str) -> dict:
     )
 
 
-async def run_parking_agent(request: ParkingRequest) -> AgentRunResult:
-    options = _build_options()
+_VERDICT_LINE = {
+    "LEGAL": "You can park here for the time you asked about.",
+    "LEGAL_UNTIL": "You can park here now, but you must move your car by {move_by}.",
+    "NOT_LEGAL": "You cannot legally park here for the time you asked about.",
+    "UNKNOWN": "We could not verify whether you can park here.",
+}
+_MARK = {"blocks": "✗", "limits": "→", "allows": "✓"}
+
+
+def _deterministic_explanation(payload: dict) -> str:
+    """A plain explanation built from the rule engine alone, when the AI
+    investigation/communication layer is unavailable."""
+    d = (payload or {}).get("decision", {}) or {}
+    status = d.get("status", "UNKNOWN")
+    lines = [_VERDICT_LINE.get(status, "").format(move_by=d.get("move_by_display") or "")]
+    if d.get("start_time_display") and d.get("end_time_display"):
+        lines.append(f"Requested: {d['start_time_display']} through {d['end_time_display']}.")
+    if d.get("urgent_alert") and d.get("urgent_reason"):
+        lines.append(f"Time-sensitive: {d['urgent_reason']}")
+    lines.append("")
+    for r in d.get("reasons", []):
+        mark = _MARK.get(r.get("verdict"), "-")
+        lines.append(f"  {mark} {str(r.get('category', '')).replace('_', ' ')}: {r.get('detail')}")
+    for u in d.get("unknown_reasons", []):
+        lines.append(f"  ? {u}")
+    lines.append("")
+    lines.append(
+        "This result comes from the deterministic rule engine over City of "
+        "Chicago data. The AI investigation layer (snow/weather context, nearby "
+        "alternatives, richer wording) is currently unavailable."
+    )
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
+async def run_parking_agent(
+    request: ParkingRequest, *, require_agent: bool = False
+) -> AgentRunResult:
     run_id = uuid.uuid4().hex
     result = AgentRunResult(request=request, final_text="", run_id=run_id)
 
-    # 1. Deterministic core runs first, unconditionally.
+    # 1. Deterministic core runs first, unconditionally -- this is the answer.
     result.core_decision = _core_decision(request, run_id)
-    result.decision = result.core_decision  # until the agent adds evidence
+    result.decision = result.core_decision
 
+    # 2. The agent is optional enrichment. No runtime -> deterministic explanation.
+    if resolve_claude_cli() is None:
+        if require_agent:
+            raise AgentAuthError(
+                "The Claude Code CLI (subscription auth) was not found. We do not "
+                "use ANTHROPIC_API_KEY."
+            )
+        result.agent_available = False
+        result.model = "deterministic"
+        result.final_text = _deterministic_explanation(result.core_decision)
+        return result
+
+    options = _build_options()
     pending: dict[str, ToolCallTrace] = {}
     started_at: dict[str, float] = {}
     order = 0
@@ -312,7 +365,10 @@ def format_trace(result: AgentRunResult) -> str:
         lines.append(f"  ? {ur}")
     lines.append(f"  complete   : {comp.get('complete')}")
     lines.append("-" * 60)
-    lines.append("AGENT EXPLANATION")
+    lines.append(
+        "EXPLANATION (agent)" if result.agent_available
+        else "EXPLANATION (deterministic — agent runtime unavailable)"
+    )
     lines.append(result.final_text.strip() or "(no text)")
     lines.append("=" * 60)
     return "\n".join(lines)

@@ -12,7 +12,7 @@ client = TestClient(api_main.app)
 def test_health():
     body = client.get("/api/health").json()
     assert body["status"] == "ok"
-    assert "agent_runtime" in body
+    assert "agent_available" in body
 
 
 def test_examples_endpoint():
@@ -76,26 +76,30 @@ _DECISION = {
 }
 
 
+def _fake_result(request, *, agent_available=True):
+    return AgentRunResult(
+        request=request,
+        final_text="You must move by 9 AM." if agent_available else "(deterministic template)",
+        run_id="run-xyz",
+        agent_available=agent_available,
+        model="claude-sonnet-4-5" if agent_available else "deterministic",
+        tool_calls=(
+            [ToolCallTrace(
+                order=1, name="mcp__chicago-parking__get_weather_outlook",
+                arguments={"run_id": "run-xyz"}, result={"status": "VERIFIED"}, latency_ms=12.0,
+            )] if agent_available else []
+        ),
+        core_decision=_DECISION,
+        decision=_DECISION,
+    )
+
+
 @pytest.fixture
 def _fake_agent(monkeypatch):
-    async def fake_run(request: ParkingRequest) -> AgentRunResult:
-        return AgentRunResult(
-            request=request,
-            final_text="You must move by 9 AM.",
-            run_id="run-xyz",
-            tool_calls=[
-                ToolCallTrace(
-                    order=1, name="mcp__chicago-parking__get_weather_outlook",
-                    arguments={"run_id": "run-xyz"}, result={"status": "VERIFIED"},
-                    latency_ms=12.0,
-                )
-            ],
-            core_decision=_DECISION,
-            decision=_DECISION,
-        )
+    async def fake_run(request: ParkingRequest, *, require_agent=False) -> AgentRunResult:
+        return _fake_result(request)
 
     monkeypatch.setattr(api_main, "run_parking_agent", fake_run)
-    monkeypatch.setattr(api_main, "resolve_claude_cli", lambda: "/fake/claude")
 
 
 def test_analyze_happy_path(_fake_agent):
@@ -114,6 +118,7 @@ def test_analyze_happy_path(_fake_agent):
     assert body["move_by_display"] == "Wednesday, September 9, 2026 at 9:00 AM"
     assert body["trace"][0]["name"] == "get_weather_outlook"
     assert body["run_id"] == "run-xyz"
+    assert body["agent_available"] is True
 
 
 def test_analyze_rejects_end_before_start(_fake_agent):
@@ -128,8 +133,11 @@ def test_analyze_rejects_end_before_start(_fake_agent):
     assert resp.status_code == 422
 
 
-def test_analyze_503_when_no_agent_runtime(monkeypatch):
-    monkeypatch.setattr(api_main, "resolve_claude_cli", lambda: None)
+def test_analyze_degrades_without_agent(monkeypatch):
+    async def fake_run(request: ParkingRequest, *, require_agent=False):
+        return _fake_result(request, agent_available=False)
+
+    monkeypatch.setattr(api_main, "run_parking_agent", fake_run)
     resp = client.post(
         "/api/parking/analyze",
         json={
@@ -138,4 +146,9 @@ def test_analyze_503_when_no_agent_runtime(monkeypatch):
             "end_time": "2026-09-09T11:00:00",
         },
     )
-    assert resp.status_code == 503
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "LEGAL_UNTIL"       # the verdict still comes through
+    assert body["agent_available"] is False
+    assert body["trace"] == []
+    assert body["summary"]

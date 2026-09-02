@@ -59,6 +59,7 @@ export interface AnalyzeResponse {
   unknown_reasons: string[];
   completeness_complete: boolean;
   core_status: ParkingStatus | null;
+  agent_available: boolean;
   run_id: string;
   model: string;
   duration_ms: number | null;

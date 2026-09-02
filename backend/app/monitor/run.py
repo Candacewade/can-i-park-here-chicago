@@ -74,11 +74,11 @@ def _request(watch: Watch) -> ParkingRequest:
 
 
 async def _investigate(request: ParkingRequest, decision: ParkingDecision):
-    """Run the agent for one watch; returns (decision, prose) or (decision, None)
-    if the runtime is unavailable/failed."""
+    """Run the agent for one watch; returns (decision, prose), or (decision, None)
+    if the runtime is unavailable/failed so the monitor uses its own template."""
     try:
-        result = await run_parking_agent(request)
-    except Exception as exc:  # any agent failure -> deterministic fallback for this watch
+        result = await run_parking_agent(request, require_agent=True)
+    except Exception as exc:  # any agent failure -> deterministic template for this watch
         print(f"  agent unavailable for {request.location_id}: {exc}")
         return decision, None
     if result.decision:

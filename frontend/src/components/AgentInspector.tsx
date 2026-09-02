@@ -8,6 +8,7 @@ export function AgentInspector({ result }: { result: AnalyzeResponse }) {
       <button className="link" onClick={() => setOpen((o) => !o)}>
         {open ? "▾" : "▸"} Agent run inspector ({result.trace.length} tool calls
         {result.duration_ms ? `, ${(result.duration_ms / 1000).toFixed(1)}s` : ""})
+        {!result.agent_available ? " · AI layer unavailable" : ""}
       </button>
       {open && (
         <div className="inspector-body">
@@ -15,6 +16,13 @@ export function AgentInspector({ result }: { result: AnalyzeResponse }) {
             model {result.model} · run {result.run_id.slice(0, 8)} · deterministic
             core: {result.core_status ?? "—"}
           </p>
+          {!result.agent_available && (
+            <p className="meta">
+              The Claude runtime was unavailable, so the explanation above is a
+              deterministic template. The verdict, move-by time, and reasons are
+              unaffected — they always come from the rule engine.
+            </p>
+          )}
           <ol>
             {result.trace.map((t) => (
               <li key={t.order}>
@@ -28,7 +36,7 @@ export function AgentInspector({ result }: { result: AnalyzeResponse }) {
               </li>
             ))}
           </ol>
-          {result.trace.length === 0 && (
+          {result.trace.length === 0 && result.agent_available && (
             <p className="meta">
               The agent added no investigation — the deterministic core answered on its own.
             </p>

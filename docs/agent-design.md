@@ -47,13 +47,23 @@ Claude Agent SDK (`claude-agent-sdk`), model `claude-sonnet-4-5`, authenticated
 through the local Claude Code CLI (subscription, no `ANTHROPIC_API_KEY`). CLI
 discovery: `app/config.py:resolve_claude_cli()`.
 
+**The agent is optional.** `run_parking_agent(request)` runs the deterministic
+core first and returns it unconditionally. If the CLI is missing it sets
+`agent_available = False`, writes a deterministic-template explanation
+(`_deterministic_explanation`), and returns — no raise. Only
+`run_parking_agent(request, require_agent=True)` (the Slice 4 monitor) raises
+`AgentAuthError` so the monitor can fall back to its own email template.
+
 ## Orchestration & lockdown
 
 `app/agent/parking_agent.py`:
 
 1. run the deterministic core → `ParkingDecision` + evidence + hard-alert flags
-2. hand that to the agent as context, with a fresh `run_id`
-3. the agent investigates (optional) and composes the explanation
+   (this is the answer; it is what `/api/parking/analyze` always returns)
+2. if the Claude runtime is present: hand the decision to the agent as context,
+   with a fresh `run_id`; the agent investigates (optional) and composes prose;
+   re-evaluate deterministically merging any evidence it stored
+3. else: deterministic-template explanation, empty trace
 4. capture every tool call (name, args, result, latency, order) for the trace
 
 `ClaudeAgentOptions`: `setting_sources=[]` (no repo `CLAUDE.md`), a `can_use_tool`

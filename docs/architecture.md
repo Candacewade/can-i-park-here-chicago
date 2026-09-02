@@ -81,16 +81,23 @@ never presented as success.
 | `backend/app/api/` | FastAPI (`/analyze`, `/locations`, `/health`, `/watches`, `/monitor/run`) | 3–4 |
 | `backend/app/monitor/` | watch model + store, deterministic message scheduling, agent-composed emails, daily run | 4 |
 | `backend/app/services/email.py` | Gmail SMTP (or `./outbox/` with no credentials) | 4 |
-| `.github/workflows/monitor.yml` · `urgent.yml` | daily full pass + hourly deterministic urgent poll → commit watch state | 4 |
-| `frontend/` | React (Vite + TS) structured-selector UI + result UI | 3 |
+| `.github/workflows/monitor.yml` · `urgent.yml` | daily full pass + hourly deterministic urgent poll | 4 |
+| `frontend/` | React (Vite + TS) address form + result UI + agent inspector | 3, 5 |
 
-## Runtime AI authentication
+## Runtime AI authentication — the agent is optional
 
 The Agent SDK shells out to the local **Claude Code CLI**, which carries the
 Claude Pro subscription credentials. We do **not** set `ANTHROPIC_API_KEY`.
-`app/config.py:resolve_claude_cli()` locates the CLI. If it is absent (e.g. on
-Render), `/api/parking/analyze` returns a clean 503 and the deterministic core
-still answers via any non-agent path. See [deployment.md](deployment.md).
+`app/config.py:resolve_claude_cli()` locates the CLI.
+
+**When it is absent** (e.g. on Render without `CLAUDE_CODE_OAUTH_TOKEN`),
+`/api/parking/analyze` still resolves the location, runs the full deterministic
+gather + completeness + rule engine, and returns the verdict + `move_by` + a
+**deterministic-template explanation**, with `agent_available: false`. The live
+checker never goes down with the AI layer. `run_parking_agent(request)` handles
+this degradation; `require_agent=True` (used only by the monitor) restores the
+old raise-on-missing behavior so the monitor can fall back to its own template.
+See [deployment.md](deployment.md).
 
 ## Deployment shape (target)
 

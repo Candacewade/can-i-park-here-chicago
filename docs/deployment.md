@@ -32,11 +32,12 @@ note the `*.vercel.app` URL and put it in Render's `FRONTEND_ORIGINS`.
 optionally `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token` — subscription,
 not an API key). `.github/workflows/{monitor,urgent}.yml` then run on schedule.
 
-**5. Verify.** `GET <render>/api/health` → `{"status":"ok"}`. Open the Vercel URL,
-resolve an address, run a check (`/api/parking/analyze` returns **503** on Render
-— expected: no Claude CLI there; the deterministic path still works everywhere
-else). Trigger `monitor.yml` manually (`workflow_dispatch`) and confirm it writes
-to the private data repo.
+**5. Verify.** `GET <render>/api/health` → `{"status":"ok","agent_available":false}`.
+Open the Vercel URL, resolve an address, run a check — it returns a normal
+`LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN` result with `agent_available: false`
+and a deterministic explanation (no Claude CLI on Render → no investigation /
+prose, but the verdict is unaffected). Trigger `monitor.yml` manually
+(`workflow_dispatch`) and confirm it writes to the private data repo.
 
 ## Runtime user data — the private data repo
 
@@ -70,13 +71,17 @@ machine. On Render there is no logged-in CLI, and we will **not**:
 - set `ANTHROPIC_API_KEY` / enable paid Claude API billing
 - upload personal credential files or commit auth tokens
 
-So the deployed backend degrades gracefully:
+So the deployed backend degrades gracefully — **the agent is optional
+enrichment, never a dependency of the parking check**:
 
 - `app/config.py:resolve_claude_cli()` returns `None` on Render
-- `GET /api/health` reports `{"agent_runtime": false}`
-- `POST /api/parking/analyze` returns **503** with a clear message
-- everything deterministic still works; a future non-agent `/analyze/basic`
-  could return the rule-engine result without the prose
+- `GET /api/health` reports `{"agent_available": false}`
+- `POST /api/parking/analyze` still resolves the location, runs the full
+  deterministic gather + completeness + rule engine, and returns the verdict +
+  `move_by` + a deterministic-template explanation, with `agent_available: false`
+- when the CLI *is* available (locally, or on Render with Node +
+  `CLAUDE_CODE_OAUTH_TOKEN`), the same endpoint additionally runs the agent for
+  snow/weather context, nearby alternatives, and richer prose
 
 Before enabling any remote agent runtime we re-verify the current supported
 subscription-auth path. Preserving the $0 budget and account security beats

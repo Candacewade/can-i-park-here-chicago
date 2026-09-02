@@ -95,6 +95,10 @@ class AnalyzeResponse(BaseModel):
     # show when investigation changed the answer.
     core_status: ParkingStatus | None = None
 
+    # False -> the Claude runtime was unavailable; `summary` is a deterministic
+    # template and `trace` is empty. The verdict itself is unaffected.
+    agent_available: bool = True
+
     # Developer / educational view (Master Build Plan sec. 19, 42).
     run_id: str
     model: str
