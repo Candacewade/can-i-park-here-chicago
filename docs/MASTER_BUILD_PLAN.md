@@ -63,17 +63,25 @@ ParkingRequest
 
 ## Proactive monitoring (Slice 4)
 
-A registered **watch** on a parked car. A daily **GitHub Actions scheduled
-workflow** re-runs the pipeline and sends: a morning status email, urgent alerts
-(deterministically triggered), and move reminders at **T‑3 days** and the
-**night before**.
+A registered **watch** on a parked car, re-checked on a schedule. It sends a
+morning status email, urgent alerts (deterministically triggered), and move
+reminders at **T‑3 days** and the **night before**. See `docs/monitoring.md`.
 
-* **Persistence:** `watches.json` committed to the repo via the GitHub API.
-  **No PII in the repo** — stable anonymous `watch_id`s only. The
-  `watch_id → email / notification config` map is a GitHub Actions **secret**,
-  never committed.
-* **Email:** Gmail SMTP via an app-password secret (`smtplib`). ~500/day, $0.
-* **Scheduler:** GitHub Actions `schedule:` cron. Render Free has no cron.
+* **Two workflows** (Render Free has no cron): a **daily** full pass
+  (`monitor.yml`, agent-composed when a runtime token is set) and an **hourly**
+  deterministic urgent poll (`urgent.yml`) that normally does nothing and fires
+  only on a *new* urgent condition. Shared `concurrency` group so they serialize.
+  Repo is public ⇒ Actions minutes are free.
+* **Runtime agent in CI:** `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`
+  — a subscription token, **not** an API key) as a repo secret. Absent ⇒
+  `--no-agent`: deterministic templates, alerts still fire. Never
+  `ANTHROPIC_API_KEY`.
+* **Persistence:** `backend/watches.json` — anonymous `watch_id`s + state only,
+  **no PII**. Committed by the workflow (`GITHUB_TOKEN`) or written via the
+  GitHub contents API from the Render service. The `watch_id → email` map is the
+  `WATCH_NOTIFY_MAP` secret / a git-ignored dev file.
+* **Email:** Gmail SMTP via an app-password secret (`smtplib`); no creds ⇒
+  `backend/outbox/`.
 * Still **$0/month**, no database, no paid SaaS.
 
 ## Revised slice order

@@ -35,12 +35,13 @@ def _block(watch: Watch) -> str:
 
 def _subject(msg: MessageType, decision: ParkingDecision, block: str) -> str:
     short_block = block.split(" between ")[0]
+    when = decision.move_by_display or "your deadline"
     if msg is MessageType.URGENT:
         return f"URGENT: {decision.urgent_reason or 'move your car'}"
     if msg is MessageType.REMINDER_3D:
-        return f"Heads up: move your car by {decision.move_by_display}"
+        return f"Heads up: move your car by {when}"
     if msg is MessageType.REMINDER_NIGHT_BEFORE:
-        return f"Tomorrow: move your car by {decision.move_by_display}"
+        return f"Tomorrow: move your car by {when}"
     # morning summary
     return {
         ParkingStatus.LEGAL: f"Parking OK - {short_block}",

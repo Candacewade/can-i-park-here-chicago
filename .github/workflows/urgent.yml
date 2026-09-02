@@ -1,0 +1,65 @@
+name: Parking monitor (urgent poll)
+
+# A once-daily cron is not enough for "urgent". This runs hourly, does a purely
+# DETERMINISTIC evaluation of every active watch, and normally does nothing.
+# It sends an email only when the rule engine reports a NEW urgent condition
+# (a cause hash not already in the watch's `notified`). The Claude agent runs
+# only for that one watch, only if a runtime token is configured -- never on a
+# quiet poll. See docs/monitoring.md.
+#
+# The repo is public, so GitHub Actions minutes are free and unmetered. On a
+# private repo this is ~1,100 min/month (under the 2,000 free); raise the cron
+# interval if you register many watches.
+on:
+  schedule:
+    - cron: "0 * * * *"     # hourly
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: parking-monitor     # shared with the daily workflow -> they serialize
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      WATCH_NOTIFY_MAP: ${{ secrets.WATCH_NOTIFY_MAP }}
+      GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e .
+
+      - name: Urgent poll
+        run: |
+          # Only install the CLI if a token is present -- the agent is invoked
+          # solely for a watch that has a *new* urgent condition.
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            npm install -g @anthropic-ai/claude-code
+            python -m app.monitor --urgent-only
+          else
+            python -m app.monitor --urgent-only --no-agent
+          fi
+
+      - name: Commit watch-state changes (only if an alert fired)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if ! git diff --quiet -- backend/watches.json; then
+            git config user.name "parking-monitor[bot]"
+            git config user.email "parking-monitor@users.noreply.github.com"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            git add backend/watches.json
+            git commit -m "chore: urgent alert $(date -u +%FT%TZ)"
+            git push
+          fi

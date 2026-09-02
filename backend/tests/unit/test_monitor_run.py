@@ -126,3 +126,61 @@ async def test_expired_watch_is_marked(monkeypatch, sent):
     report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
     assert report.checked == 0
     assert w.status is WatchStatus.EXPIRED
+
+
+# --- urgent-only (hourly poll) mode --------------------------------
+
+async def test_urgent_only_quiet_poll_touches_nothing(monkeypatch, sent):
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    w = _watch()
+    store = MemStore([w])
+    report = await run_monitor(now=NOW, store=store, use_agent=False, urgent_only=True)
+
+    assert report.mode == "urgent_only"
+    assert report.emails_sent == 0
+    assert w.last_checked_at is None        # state untouched on a quiet poll
+    assert w.last_decision is None
+    assert report.outcomes[0].status == "LEGAL"
+
+
+async def test_urgent_only_sends_on_new_urgent_condition(monkeypatch, sent):
+    _stub_decision(
+        monkeypatch, ParkingStatus.NOT_LEGAL, urgent=True, reason="new closure permit"
+    )
+    w = _watch()
+    report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False, urgent_only=True)
+
+    assert report.emails_sent == 1
+    assert sent[0][1].startswith("URGENT")
+    assert any(k.startswith("urgent:") for k in w.notified)
+
+
+async def test_urgent_only_does_not_resend_same_cause(monkeypatch, sent):
+    _stub_decision(
+        monkeypatch, ParkingStatus.NOT_LEGAL, urgent=True, reason="new closure permit"
+    )
+    from app.monitor.schedule import urgent_cause_key
+
+    cause = urgent_cause_key(
+        ParkingDecision(status=ParkingStatus.NOT_LEGAL, urgent_alert=True,
+                        urgent_reason="new closure permit")
+    )
+    w = _watch(notified=[cause])
+    report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False, urgent_only=True)
+    assert report.emails_sent == 0
+
+
+async def test_urgent_only_ignores_morning_and_reminders(monkeypatch, sent):
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL_UNTIL, move_by=NOW + timedelta(days=3))
+    report = await run_monitor(
+        now=NOW, store=MemStore([_watch()]), use_agent=False, urgent_only=True
+    )
+    assert report.emails_sent == 0   # morning + reminder-3d would fire in full mode
+
+
+async def test_use_agent_true_but_no_cli_falls_back(monkeypatch, sent):
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    monkeypatch.setattr(run_mod, "resolve_claude_cli", lambda: None)
+    report = await run_monitor(now=NOW, store=MemStore([_watch()]), use_agent=True)
+    assert report.agent_used is False
+    assert report.emails_sent == 1   # deterministic template still sends

@@ -1,17 +1,22 @@
-name: Parking monitor
+name: Parking monitor (daily)
 
-# Daily pass over registered car-watches. Render Free has no cron, so this runs
-# here. See docs/monitoring.md.
+# The daily morning pass: status summary, move reminders, and any urgent alert.
+# Render Free has no cron, so this runs here. See docs/monitoring.md.
+#
+# When CLAUDE_CODE_OAUTH_TOKEN is configured (a subscription-backed token from
+# `claude setup-token`, stored as a repo secret -- NOT an API key), the Claude
+# agent does its optional investigation and composes the email. Without it, the
+# job falls back to deterministic templates; alerts still send.
 on:
   schedule:
     - cron: "0 13 * * *"   # ~07:00-08:00 America/Chicago
   workflow_dispatch: {}
 
 permissions:
-  contents: write          # to commit watch-state changes back
+  contents: write
 
 concurrency:
-  group: parking-monitor
+  group: parking-monitor          # shared with the hourly workflow -> they serialize
   cancel-in-progress: false
 
 jobs:
@@ -21,20 +26,28 @@ jobs:
       run:
         working-directory: backend
     env:
-      # PII + credentials live only in secrets, never in the repo.
       WATCH_NOTIFY_MAP: ${{ secrets.WATCH_NOTIFY_MAP }}
       GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev]"
+          cache: pip
+      - run: pip install -e .
 
-      # No Claude CLI in CI -> deterministic templates only. Alerts still send;
-      # only the prose degrades.
-      - run: python -m app.monitor --no-agent
+      - name: Run the daily pass
+        run: |
+          if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "Claude runtime token present -> agent-composed emails"
+            npm install -g @anthropic-ai/claude-code
+            python -m app.monitor
+          else
+            echo "No CLAUDE_CODE_OAUTH_TOKEN -> deterministic templates"
+            python -m app.monitor --no-agent
+          fi
 
       - name: Commit watch-state changes
         run: |
@@ -42,7 +55,8 @@ jobs:
           if ! git diff --quiet -- backend/watches.json; then
             git config user.name "parking-monitor[bot]"
             git config user.email "parking-monitor@users.noreply.github.com"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
             git add backend/watches.json
-            git commit -m "chore: monitor run $(date -u +%FT%TZ)"
+            git commit -m "chore: monitor (daily) $(date -u +%FT%TZ)"
             git push
           fi

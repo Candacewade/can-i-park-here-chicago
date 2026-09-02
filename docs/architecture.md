@@ -79,7 +79,7 @@ never presented as success.
 | `backend/app/api/` | FastAPI (`/analyze`, `/locations`, `/health`, `/watches`, `/monitor/run`) | 3–4 |
 | `backend/app/monitor/` | watch model + store, deterministic message scheduling, agent-composed emails, daily run | 4 |
 | `backend/app/services/email.py` | Gmail SMTP (or `./outbox/` with no credentials) | 4 |
-| `.github/workflows/monitor.yml` | daily cron → `python -m app.monitor` → commit watch state | 4 |
+| `.github/workflows/monitor.yml` · `urgent.yml` | daily full pass + hourly deterministic urgent poll → commit watch state | 4 |
 | `frontend/` | React (Vite + TS) structured-selector UI + result UI | 3 |
 
 ## Runtime AI authentication

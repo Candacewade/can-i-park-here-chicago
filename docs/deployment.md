@@ -49,9 +49,12 @@ VITE_API_URL=https://<your-service>.onrender.com
 Monitoring (GitHub Actions repo secrets, Slice 4):
 
 ```
-WATCH_NOTIFY_MAP      JSON: { "wch_...": { "email": "..." } }   ← the only place emails live
-GMAIL_APP_PASSWORD    Gmail app password for the sender account
-GMAIL_SENDER          the sender address
+WATCH_NOTIFY_MAP         JSON: { "wch_...": { "email": "..." } }  ← the only place emails live
+GMAIL_APP_PASSWORD       Gmail app password for the sender account
+GMAIL_SENDER             the sender address
+CLAUDE_CODE_OAUTH_TOKEN  optional: `claude setup-token` output (subscription, NOT an API
+                         key). Present -> scheduled emails are agent-composed. Absent ->
+                         deterministic templates, alerts still fire. See monitoring.md.
 ```
 
 The workflow uses the built-in `GITHUB_TOKEN` (with `permissions: contents:
