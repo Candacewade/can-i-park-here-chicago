@@ -15,8 +15,8 @@ interface Props {
   onCancelChanging: () => void;
 }
 
-/** Right-column card for the two actions tied to a parking result:
- *   - no monitor yet  -> subscribe (email -> POST /api/watches)
+/** Result-tied monitoring actions:
+ *   - no monitor yet   -> subscribe (email -> POST /api/watches)
  *   - monitor + changing -> confirm the move to the just-checked spot
  *  The always-visible "Monitoring active" card lives in <MonitorBanner>. */
 export function MonitorPanel({
@@ -96,17 +96,19 @@ export function MonitorPanel({
   // --- confirm moving an existing monitor to the checked spot -------
   if (monitor && changing) {
     return (
-      <div className="card monitor">
-        <h3>🔁 Move your monitoring here?</h3>
-        {err && <p className="mon-err">{err}</p>}
-        <p>New spot:</p>
+      <section className="section monitor-cta" aria-label="Move your monitoring">
+        <h3>Move your monitoring here?</h3>
         <p className="mon-loc">{blockSummary}</p>
         {throughDisplay && <p className="note">Through {throughDisplay}</p>}
         <p className="note">
-          Your current watch stays active until you confirm. Confirming resolves it
-          and starts a fresh one here — the old location stops emailing you
-          immediately.
+          Your current watch keeps running until you confirm. Confirming resolves it and
+          starts a fresh one here — the old location stops emailing you immediately.
         </p>
+        {err && (
+          <p className="mon-err" role="alert">
+            {err}
+          </p>
+        )}
         <div className="mon-actions">
           <button className="primary" disabled={phase === "working"} onClick={confirmMove}>
             {phase === "working" ? "Updating…" : "Confirm move"}
@@ -115,7 +117,7 @@ export function MonitorPanel({
             Keep the current spot
           </button>
         </div>
-      </div>
+      </section>
     );
   }
 
@@ -123,15 +125,17 @@ export function MonitorPanel({
 
   // --- not monitoring yet: subscribe -----------------------------
   return (
-    <div className="card monitor">
+    <section className="section monitor-cta" aria-label="Monitor this parking spot">
       {notice ? (
-        <p className="mon-ok">{notice}</p>
+        <p className="mon-ok" role="status">
+          {notice}
+        </p>
       ) : phase === "form" ? (
         <>
           <h3>🔔 Monitor this parking spot</h3>
           <p className="note">
-            We'll email you a morning status check and an urgent alert if you need to
-            move your car. One click to stop any time.
+            We'll email you a morning status check and an urgent alert if you need to move
+            your car. One click to stop any time.
           </p>
           <label>
             Your email
@@ -143,7 +147,11 @@ export function MonitorPanel({
               onChange={(e) => setEmail(e.target.value)}
             />
           </label>
-          {err && <p className="mon-err">{err}</p>}
+          {err && (
+            <p className="mon-err" role="alert">
+              {err}
+            </p>
+          )}
           <div className="mon-actions">
             <button className="primary" disabled={phase !== "form"} onClick={start}>
               Start monitoring
@@ -175,11 +183,10 @@ export function MonitorPanel({
             🔔 Monitor this parking spot
           </button>
           <p className="note">
-            Get a daily check and urgent move-your-car alerts by email. No account
-            needed.
+            Get a daily check and urgent move-your-car alerts by email. No account needed.
           </p>
         </>
       )}
-    </div>
+    </section>
   );
 }

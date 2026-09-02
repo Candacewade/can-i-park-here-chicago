@@ -4,7 +4,7 @@ import type { AnalyzeResponse } from "../types";
 export function AgentInspector({ result }: { result: AnalyzeResponse }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="card inspector">
+    <div className="inspector">
       <button className="link" onClick={() => setOpen((o) => !o)}>
         {open ? "▾" : "▸"} Agent run inspector ({result.trace.length} tool calls
         {result.duration_ms ? `, ${(result.duration_ms / 1000).toFixed(1)}s` : ""})

@@ -11,14 +11,14 @@ interface Props {
   extendOnOpen?: boolean;
 }
 
-const STATUS_LINE: Record<string, string> = {
-  LEGAL: "✅ ",
-  LEGAL_UNTIL: "⚠️ ",
-  NOT_LEGAL: "🚫 ",
-  UNKNOWN: "⚠️ ",
+const STATUS_ICON: Record<string, string> = {
+  LEGAL: "✅",
+  LEGAL_UNTIL: "⚠️",
+  NOT_LEGAL: "❌",
+  UNKNOWN: "⚠️",
 };
 
-/** Persistent, always-visible card for an active watch — shown on the home
+/** Persistent, compact status card for an active watch — shown on the home
  *  view before (and regardless of) any parking check. */
 export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen }: Props) {
   const [mode, setMode] = useState<"idle" | "extend">(extendOnOpen ? "extend" : "idle");
@@ -56,7 +56,7 @@ export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen
     setWorking(true);
     try {
       const r = await extendWatch(monitor.watchId, monitor.token, next);
-      onChange(applyExtend(monitor, r)); // localStorage + banner update
+      onChange(applyExtend(monitor, r)); // localStorage + card update
       setDone(r);
       setMode("idle");
     } catch (e) {
@@ -67,75 +67,82 @@ export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen
   };
 
   return (
-    <div className="card monitor-banner">
-      <div className="mb-main">
-        <div className="mb-title">🔔 Monitoring active</div>
-        {monitor.locationSummary && <div className="mb-loc">{monitor.locationSummary}</div>}
+    <div className="card monitor">
+      <span className="monitor-badge">🔔 Monitoring active</span>
+
+      {monitor.locationSummary && <p className="monitor-loc">{monitor.locationSummary}</p>}
+
+      <dl className="monitor-meta">
         {monitor.throughDisplay && (
-          <div className="note">Through {monitor.throughDisplay}</div>
+          <>
+            <dt>Through</dt>
+            <dd>{monitor.throughDisplay}</dd>
+          </>
         )}
         {monitor.email && (
-          <div className="note">
-            Emailing <strong>{monitor.email}</strong>
-          </div>
+          <>
+            <dt>Emailing</dt>
+            <dd className="muted">{monitor.email}</dd>
+          </>
         )}
+      </dl>
 
-        {done && (
-          <div className="mb-extend-done">
-            <div className="mon-ok">✅ Monitoring extended</div>
-            <div className="note">Now monitoring through {done.through_display}</div>
+      {done && (
+        <div className="extend-done" role="status" aria-live="polite">
+          <p className="mon-ok">✅ Monitoring extended</p>
+          <p className="note">Now monitoring through {done.through_display}</p>
+          <p>
+            {STATUS_ICON[done.status] ?? ""} {done.summary}
+          </p>
+          {done.status === "LEGAL_UNTIL" && done.move_by_display && (
             <p>
-              {STATUS_LINE[done.status] ?? ""}
-              {done.summary}
+              Move by: <strong>{done.move_by_display}</strong>
             </p>
-            {done.move_by_display && done.status === "LEGAL_UNTIL" && (
-              <p className="mb-moveby">
-                Move by: <strong>{done.move_by_display}</strong>
-              </p>
-            )}
-            <button className="link" onClick={() => setDone(null)}>
-              Dismiss
+          )}
+          <button className="link" onClick={() => setDone(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {err && (
+        <p className="mon-err" role="alert">
+          {err}
+        </p>
+      )}
+
+      {mode === "extend" ? (
+        <div className="extend-panel">
+          <p className="extend-current">
+            Current end: {monitor.throughDisplay ?? monitor.endLocal ?? "—"}
+          </p>
+          <div className="row">
+            <label>
+              New end
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </label>
+            <label>
+              New end time
+              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            </label>
+          </div>
+          <div className="mon-actions">
+            <button className="primary" disabled={working} onClick={submitExtend}>
+              {working ? "Updating…" : "Update parking time"}
+            </button>
+            <button
+              className="link"
+              onClick={() => {
+                setMode("idle");
+                setErr(null);
+              }}
+            >
+              Cancel
             </button>
           </div>
-        )}
-
-        {err && <div className="mon-err">{err}</div>}
-
-        {mode === "extend" && (
-          <div className="mb-extend">
-            <div className="note">
-              Current end: {monitor.throughDisplay ?? monitor.endLocal ?? "—"}
-            </div>
-            <div className="row">
-              <label>
-                New end
-                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-              </label>
-              <label>
-                &nbsp;
-                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-              </label>
-            </div>
-            <div className="mb-actions">
-              <button className="primary" disabled={working} onClick={submitExtend}>
-                {working ? "Updating…" : "Update parking time"}
-              </button>
-              <button
-                className="link"
-                onClick={() => {
-                  setMode("idle");
-                  setErr(null);
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {mode === "idle" && (
-        <div className="mb-actions">
+        </div>
+      ) : (
+        <div className="monitor-actions">
           <button className="secondary" disabled={working} onClick={onStartChanging}>
             Change parking spot
           </button>
@@ -150,7 +157,7 @@ export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen
           >
             Extend parking time
           </button>
-          <button className="link danger" disabled={working} onClick={stop}>
+          <button className="link danger stop" disabled={working} onClick={stop}>
             {working ? "Stopping…" : "Stop monitoring"}
           </button>
         </div>

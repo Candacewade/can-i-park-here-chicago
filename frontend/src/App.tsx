@@ -180,117 +180,124 @@ export default function App() {
     <div className="page">
       <header>
         <h1>Can I Park Here?</h1>
-        <p className="tag">
-          Chicago street parking, checked against City data. A deterministic rule
-          engine decides legality; an AI agent investigates the edges and explains.
-        </p>
+        <p className="lede">Check Chicago street parking rules before you leave your car.</p>
       </header>
 
-      {linkStatus === "loading" && (
-        <div className="card banner">Opening your parking monitor…</div>
-      )}
-      {linkStatus === "resolved" && (
-        <div className="card banner">
-          🔕 That parking monitor has already been turned off — you won't get any more
-          emails for it.
-          <button className="link" onClick={() => setLinkStatus("none")}>
-            Dismiss
-          </button>
-        </div>
-      )}
-      {linkStatus === "invalid" && (
-        <div className="card banner">
-          ⚠️ That management link isn't valid — it may be old. Use the link in your most
-          recent parking email.
-          <button className="link" onClick={() => setLinkStatus("none")}>
-            Dismiss
-          </button>
-        </div>
-      )}
+      <div className="stack">
+        {linkStatus === "loading" && (
+          <div className="callout info">Opening your parking monitor…</div>
+        )}
+        {linkStatus === "resolved" && (
+          <div className="callout warn" role="status">
+            <span>
+              🔕 That parking monitor has already been turned off — you won't get any more
+              emails for it.
+            </span>
+            <button className="link" onClick={() => setLinkStatus("none")}>
+              Dismiss
+            </button>
+          </div>
+        )}
+        {linkStatus === "invalid" && (
+          <div className="callout warn" role="alert">
+            <span>
+              ⚠️ That management link isn't valid — it may be old. Use the link in your
+              most recent parking email.
+            </span>
+            <button className="link" onClick={() => setLinkStatus("none")}>
+              Dismiss
+            </button>
+          </div>
+        )}
 
-      {monitor && !changing && linkStatus !== "loading" && (
-        <MonitorBanner
-          monitor={monitor}
-          onChange={updateMonitor}
-          onStartChanging={startChanging}
-          extendOnOpen={wantExtend.current}
-        />
-      )}
+        {monitor && !changing && linkStatus !== "loading" && (
+          <MonitorBanner
+            monitor={monitor}
+            onChange={updateMonitor}
+            onStartChanging={startChanging}
+            extendOnOpen={wantExtend.current}
+          />
+        )}
 
-      {monitor && changing && !readyToConfirmMove && (
-        <div className="card banner">
-          <strong>Changing your monitored parking spot.</strong> Enter the new address
-          below and run the check — your current watch keeps running until you confirm
-          the move.
-          <button className="link" onClick={() => setChanging(false)}>
-            Cancel
-          </button>
-        </div>
-      )}
+        {monitor && changing && !readyToConfirmMove && (
+          <div className="callout info">
+            <span>
+              <strong>Changing your monitored parking spot.</strong> Enter the new address
+              below and run the check — your current watch keeps running until you confirm.
+            </span>
+            <button className="link" onClick={() => setChanging(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
 
-      <div className="layout">
-        <div>
-          {!resolved ? (
-            <AddressForm
-              value={address}
-              onChange={setAddress}
-              onSubmit={doResolve}
-              examples={examples}
-              busy={resolving}
-            />
-          ) : (
-            <BlockConfirm
-              resolved={resolved}
-              side={side}
-              onSide={setSide}
-              when={when}
-              onWhen={setWhen}
-              onSubmit={doAnalyze}
-              onBack={() => {
-                setResolved(null);
-                setResult(null);
-              }}
-              busy={analyzing}
-            />
-          )}
-        </div>
+        {!resolved ? (
+          <AddressForm
+            value={address}
+            onChange={setAddress}
+            onSubmit={doResolve}
+            examples={examples}
+            busy={resolving}
+          />
+        ) : (
+          <BlockConfirm
+            resolved={resolved}
+            side={side}
+            onSide={setSide}
+            when={when}
+            onWhen={setWhen}
+            onSubmit={doAnalyze}
+            onBack={() => {
+              setResolved(null);
+              setResult(null);
+            }}
+            busy={analyzing}
+          />
+        )}
 
-        <div>
-          {busy && (
-            <div className="card working">
-              <div className="spinner" />
-              <p>
-                {resolving
-                  ? "Resolving the address against City of Chicago street geometry…"
-                  : "The agent is checking City data (permit zones, street cleaning, closures, snow routes)…"}
-              </p>
-            </div>
-          )}
-          {err && <div className="card error">{err}</div>}
-          {result && !analyzing && (
-            <>
-              <ResultCard result={result} />
-              <AgentInspector result={result} />
-            </>
-          )}
-          {result && !analyzing && (
-            <MonitorPanel
-              locationId={locationId}
-              blockSummary={blockSummary}
-              throughDisplay={result.end_time_display ?? null}
-              when={when}
-              monitor={monitor}
-              changing={changing}
-              onChange={updateMonitor}
-              onCancelChanging={() => setChanging(false)}
-            />
-          )}
-        </div>
+        {busy && (
+          <div className="card working" role="status" aria-live="polite">
+            <div className="spinner" aria-hidden="true" />
+            <p>
+              {resolving
+                ? "Matching the address to a Chicago street segment…"
+                : "Checking City data — permit zones, street cleaning, closures, snow routes…"}
+            </p>
+          </div>
+        )}
+
+        {err && (
+          <div className="callout error" role="alert">
+            {err}
+          </div>
+        )}
+
+        {result && !analyzing && <ResultCard result={result} blockSummary={blockSummary} />}
+        {result && !analyzing && (
+          <MonitorPanel
+            locationId={locationId}
+            blockSummary={blockSummary}
+            throughDisplay={result.end_time_display ?? null}
+            when={when}
+            monitor={monitor}
+            changing={changing}
+            onChange={updateMonitor}
+            onCancelChanging={() => setChanging(false)}
+          />
+        )}
+        {result && !analyzing && <AgentInspector result={result} />}
       </div>
 
       <footer>
-        Data: City of Chicago Open Data Portal, US Census Bureau geocoder &amp; the
-        US National Weather Service. Not affiliated with the City of Chicago.
+        <p>
+          A deterministic rule engine decides legality and move-by times from City of
+          Chicago data. An AI agent only investigates context (weather, events, nearby
+          alternatives) and writes the explanation — it never changes the verdict.
+        </p>
+        <p>
+          Data: City of Chicago Open Data Portal, US Census Bureau geocoder &amp; the US
+          National Weather Service. Not affiliated with the City of Chicago.
+        </p>
       </footer>
     </div>
   );

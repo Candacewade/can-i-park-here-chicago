@@ -1,61 +1,81 @@
 import type { AnalyzeResponse, ParkingStatus } from "../types";
 
-const META: Record<ParkingStatus, { cls: string; icon: string; label: string }> = {
-  LEGAL: { cls: "legal", icon: "✅", label: "Parking allowed" },
-  LEGAL_UNTIL: { cls: "until", icon: "⚠️", label: "Allowed — but you must move" },
-  NOT_LEGAL: { cls: "not-legal", icon: "🚫", label: "Do not park here" },
-  UNKNOWN: { cls: "unknown", icon: "❓", label: "Could not verify" },
+const META: Record<ParkingStatus, { cls: string; icon: string; headline: string }> = {
+  LEGAL: { cls: "legal", icon: "✅", headline: "You can park here" },
+  LEGAL_UNTIL: { cls: "until", icon: "⚠️", headline: "You can park here for now" },
+  NOT_LEGAL: { cls: "not-legal", icon: "❌", headline: "Don't park here" },
+  UNKNOWN: { cls: "unknown", icon: "⚠️", headline: "We can't verify this spot yet" },
 };
 
-export function ResultCard({ result }: { result: AnalyzeResponse }) {
+const GLYPH: Record<string, string> = { allows: "✓", blocks: "✕", limits: "→", unknown: "?" };
+
+export function ResultCard({
+  result,
+  blockSummary,
+}: {
+  result: AnalyzeResponse;
+  blockSummary?: string;
+}) {
   const m = META[result.status];
+
   return (
-    <div className={`card result ${m.cls}`}>
-      <div className="result-head">
-        <span className="result-icon">{m.icon}</span>
+    <div className={`card result ${m.cls}`} role="status" aria-live="polite">
+      <div className="result-status">
+        <span className="result-icon" aria-hidden="true">
+          {m.icon}
+        </span>
         <div>
-          <div className="result-label">{m.label}</div>
+          <h2 className="result-headline">{m.headline}</h2>
           {result.status === "LEGAL_UNTIL" && result.move_by_display && (
-            <div className="result-moveby">Move by {result.move_by_display}</div>
+            <p className="result-deadline">
+              Move by <strong>{result.move_by_display}</strong>
+            </p>
           )}
         </div>
       </div>
 
-      {result.urgent_alert && (
-        <div className="urgent">⏰ Time-sensitive: {result.urgent_reason}</div>
+      {result.urgent_alert && result.urgent_reason && (
+        <p className="result-urgent">⏰ Time-sensitive: {result.urgent_reason}</p>
       )}
 
-      <div className="interval">
-        {result.start_time_display} → {result.end_time_display}
+      <div className="result-meta">
+        {blockSummary && <p className="result-where">{blockSummary}</p>}
+        <p className="result-window">
+          {result.start_time_display} → {result.end_time_display}
+        </p>
       </div>
 
-      {result.status === "UNKNOWN" && result.unknown_reasons.length > 0 && (
-        <ul className="reasons">
-          {result.unknown_reasons.map((u, i) => (
-            <li key={i} className="r-unknown">{u}</li>
+      <ul className="result-reasons">
+        {result.status === "UNKNOWN" &&
+          result.unknown_reasons.map((u, i) => (
+            <li key={`u${i}`}>
+              <span className="glyph unknown" aria-hidden="true">
+                ?
+              </span>
+              <span>{u}</span>
+            </li>
           ))}
-        </ul>
-      )}
-
-      <ul className="reasons">
         {result.reasons.map((r, i) => (
-          <li key={i} className={`r-${r.verdict}`}>
-            <strong>{r.category.replace(/_/g, " ")}:</strong> {r.detail}
+          <li key={i}>
+            <span className={`glyph ${r.verdict}`} aria-hidden="true">
+              {GLYPH[r.verdict] ?? "•"}
+            </span>
+            <span>{r.detail}</span>
           </li>
         ))}
       </ul>
 
       {result.core_status && result.core_status !== result.status && (
-        <p className="note">
+        <p className="result-changed">
           Investigation changed the deterministic result from {result.core_status} to{" "}
           {result.status}.
         </p>
       )}
 
-      <div className="summary">
-        <h3>Explanation</h3>
+      <details className="disclosure">
+        <summary>How we checked this</summary>
         <pre>{result.summary}</pre>
-      </div>
+      </details>
     </div>
   );
 }
