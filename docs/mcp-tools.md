@@ -9,9 +9,15 @@ data-source failure surfaced as an explicit status, never as "no restriction".
 The server exposes **no** generic HTTP, filesystem, or code-execution capability.
 
 Descriptions say what a tool answers and when it is *relevant* — they do not
-script a call order. The agent chooses. `evaluate_parking_request` re-gathers
-evidence itself and runs a deterministic completeness check, so a skipped tool
-cannot become a false "you can park".
+script a call order. The agent chooses.
+
+Every tool except `get_location_context` / `list_supported_locations` takes a
+**`run_id`** (supplied in the request). The evidence tools persist their
+authoritative normalized output in `app.evidence_store` under
+`(run_id, category, block/interval args)`. `evaluate_parking_request` reads that
+stored evidence — it never re-fetches and never accepts evidence from the agent.
+A required evidence tool that was not run for this `run_id` = missing evidence =
+`UNKNOWN`. Implementations live in `app/mcp/handlers.py`.
 
 ---
 
@@ -31,7 +37,8 @@ cannot become a false "you can park".
 | | |
 |---|---|
 | Purpose | Residential permit-parking status for the block + side. |
-| Arguments | `location_id: str` |
+| Arguments | `run_id: str`, `location_id: str` |
+| Stores | `residential` evidence keyed by `location_id` |
 | Returns | `ResidentialZoneEvidence` — `{status, zone_required, is_buffer, matched_segment, provenance, notes}` |
 | Source | City of Chicago **Permit Parking Zones** (`qiag-khha`) |
 | Failure | Portal error ⇒ `UNAVAILABLE`; unknown id ⇒ `UNSUPPORTED`; no covering segment ⇒ `VERIFIED` + `zone_required: null`. |
@@ -42,7 +49,8 @@ cannot become a false "you can park".
 | | |
 |---|---|
 | Purpose | Street-cleaning windows overlapping the interval. |
-| Arguments | `location_id: str`, `start_time`, `end_time` (ISO-8601 + offset) |
+| Arguments | `run_id: str`, `location_id: str`, `start_time`, `end_time` (ISO-8601 + offset) |
+| Stores | `street_cleaning` evidence keyed by `location_id` + interval |
 | Returns | `StreetCleaningEvidence` — `{status, ward, section, windows: [{date, start, end, description}], provenance, notes}` |
 | Source | City of Chicago **Street Sweeping Schedule - 2026** (`u5ai-3efk`) |
 | Failure | Portal error ⇒ `UNAVAILABLE`; no ward/section ⇒ `UNSUPPORTED`; no overlap ⇒ `VERIFIED` + empty `windows`. |
@@ -53,7 +61,8 @@ cannot become a false "you can park".
 | | |
 |---|---|
 | Purpose | Temporary street-closure / public-way permits removing on-street parking. |
-| Arguments | `location_id: str`, `start_time`, `end_time` |
+| Arguments | `run_id: str`, `location_id: str`, `start_time`, `end_time` |
+| Stores | `temporary_closure` evidence keyed by `location_id` + interval |
 | Returns | `TemporaryClosureEvidence` — `{status, closures: [{permit_number, closure_type, start, end, meter_posting_or_bagging, work_description, blocks_parking}], provenance, notes}` |
 | Source | City of Chicago **Transportation Permits / Street Closures** (`rzy5-8tax`) |
 | Failure | Portal error ⇒ `UNAVAILABLE`; no matching permit ⇒ `VERIFIED` + empty `closures`. |
@@ -64,11 +73,12 @@ cannot become a false "you can park".
 | | |
 |---|---|
 | Purpose | The official deterministic parking decision. |
-| Arguments | `location_id: str`, `start_time`, `end_time`, `permit_zone: str | null` |
-| Returns | `{decision: ParkingDecision, completeness: {complete, missing[]}, evidence: ParkingEvidence}` |
-| Source | Re-gathers **all** datasets itself (ignores agent-relayed evidence), then `app/rules/`. |
-| Failure | Invalid request ⇒ `{status: "UNKNOWN", error}`. |
-| Why the agent needs it | It is the *only* way to get a verdict. The agent cannot compute or override `status` / `move_by`; it calls this once it has gathered what the request needs, then explains the result. |
+| Arguments | `run_id: str`, `location_id: str`, `start_time`, `end_time`, `permit_zone: str | null` |
+| Returns | `{run_id, decision: ParkingDecision, completeness: {complete, missing[]}, evidence: ParkingEvidence}` |
+| Source | Reads the evidence the other tools stored under this `run_id` (no re-fetch, no agent-relayed evidence), then `app/rules/`. |
+| Decision fields | `status`, `move_by`, `reasons[]`, `unknown_reasons[]`, and `start_time_display` / `end_time_display` / `move_by_display` (America/Chicago) |
+| Failure | Invalid request ⇒ `{decision: {status: "UNKNOWN"}, error}`. |
+| Why the agent needs it | It is the *only* way to get a verdict. A required evidence tool not run for this `run_id` ⇒ `UNKNOWN`. The agent explains the result; it cannot compute or override `status` / `move_by` or reformat the dates. |
 
 ## `list_supported_locations`
 

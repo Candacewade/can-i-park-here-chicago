@@ -37,3 +37,9 @@ class ParkingDecision(BaseModel):
     unknown_reasons: list[str] = Field(
         default_factory=list, description="Why we could not fully verify (drives UNKNOWN)."
     )
+
+    # Deterministically formatted America/Chicago strings. The agent restates
+    # these verbatim -- it must never compute a weekday or convert a time itself.
+    start_time_display: str | None = None
+    end_time_display: str | None = None
+    move_by_display: str | None = None

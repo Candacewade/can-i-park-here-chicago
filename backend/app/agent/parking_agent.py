@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -63,6 +64,7 @@ class ToolCallTrace:
 class AgentRunResult:
     request: ParkingRequest
     final_text: str
+    run_id: str = ""
     tool_calls: list[ToolCallTrace] = field(default_factory=list)
     evidence: dict[str, Any] = field(default_factory=dict)
     decision: dict[str, Any] | None = None  # from evaluate_parking_request, if the agent called it
@@ -122,10 +124,12 @@ def _build_options() -> ClaudeAgentOptions:
     )
 
 
-def _prompt_for(request: ParkingRequest) -> str:
+def _prompt_for(request: ParkingRequest, run_id: str) -> str:
     return (
         "Assess this parking request: gather the evidence it needs, get the "
-        "official decision from evaluate_parking_request, then explain it.\n\n"
+        "official decision from evaluate_parking_request, then explain it.\n"
+        "Pass run_id to every chicago-parking tool call.\n\n"
+        f"run_id: {run_id}\n"
         f"location_id: {request.location_id}\n"
         f"start_time: {request.start_time.isoformat()}\n"
         f"end_time: {request.end_time.isoformat()}\n"
@@ -154,13 +158,14 @@ def _coerce_result(content: Any) -> Any:
 
 async def run_parking_agent(request: ParkingRequest) -> AgentRunResult:
     options = _build_options()
-    result = AgentRunResult(request=request, final_text="")
+    run_id = uuid.uuid4().hex
+    result = AgentRunResult(request=request, final_text="", run_id=run_id)
 
     pending: dict[str, ToolCallTrace] = {}
     started_at: dict[str, float] = {}
     order = 0
 
-    async for message in query(prompt=_prompt_for(request), options=options):
+    async for message in query(prompt=_prompt_for(request, run_id), options=options):
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, ToolUseBlock):
@@ -245,8 +250,11 @@ def format_trace(result: AgentRunResult) -> str:
         inner = result.decision.get("decision", {})
         comp = result.decision.get("completeness", {})
         lines.append(f"  status   : {inner.get('status')}")
-        if inner.get("move_by"):
-            lines.append(f"  move_by  : {inner['move_by']}")
+        lines.append(
+            f"  interval : {inner.get('start_time_display')} -> {inner.get('end_time_display')}"
+        )
+        if inner.get("move_by_display"):
+            lines.append(f"  move_by  : {inner['move_by_display']}")
         for reason in inner.get("reasons", []):
             lines.append(
                 f"  - [{reason.get('verdict')}] {reason.get('category')}: {reason.get('detail')}"

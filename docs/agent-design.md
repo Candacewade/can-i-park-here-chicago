@@ -10,12 +10,19 @@
 
 ## What Claude does NOT control
 
-- **Parking legality** — decided only by `evaluate_parking()` (Slice 2).
+- **Parking legality** — decided only by `evaluate_parking()`.
+- **Evidence content** — each MCP evidence tool fetches and stores its own
+  authoritative output in `app.evidence_store` under the run's `run_id`. The
+  agent never assembles, edits, or relays evidence; `evaluate_parking_request`
+  reads it straight from the store.
 - **Rule interpretation** outside of what a tool result literally says.
-- **Missing-data assumptions** — `UNAVAILABLE`/`UNSUPPORTED` stays unverified;
-  it never becomes "you can park".
+- **Missing-data assumptions** — `UNAVAILABLE` / `UNSUPPORTED` / not-gathered
+  stays unverified; it never becomes "you can park".
 - **Overriding the evaluator** — the agent receives a finished `ParkingDecision`
   and may not change its `status` or `move_by`.
+- **Dates and times** — the decision carries `start_time_display`,
+  `end_time_display`, `move_by_display` (America/Chicago). The agent restates
+  those strings; it must not compute a weekday or convert a time.
 
 ## Runtime & auth
 
@@ -61,5 +68,12 @@ normalized evidence bundle passed to the rule engine.
 - **How arguments travel**: Claude emits a `tool_use` block with a JSON input →
   the SDK routes it over stdio JSON-RPC to our MCP server → the Python function
   runs → the return value comes back as a `tool_result` block Claude then reads.
-- **Where AI ends**: once evidence is gathered, deterministic Python decides
-  legality. Probabilistic model → deterministic software is the safety line.
+- **Why `run_id`**: the orchestrator (`run_parking_agent`) mints a `run_id` and
+  puts it in the prompt; the agent passes it to every tool. Evidence tools store
+  their output under it; `evaluate_parking_request` reads that run's evidence.
+  This makes the agent's orchestration operationally meaningful (the verdict
+  uses the evidence *it* gathered) while keeping the evidence itself out of the
+  model's hands.
+- **Where AI ends**: once evidence is stored, deterministic Python decides
+  legality and formats every date. Probabilistic model → deterministic software
+  is the safety line.

@@ -4,27 +4,42 @@
 verdict is produced. Pure functions, no LLM, no hidden I/O in the evaluator
 itself.
 
-## Pipeline
+## Pipeline (agent path)
 
 ```
-ParkingRequest
+agent calls get_residential_restrictions(run_id, ...)      ─┐
+agent calls get_street_cleaning_restrictions(run_id, ...)   │  each tool fetches +
+agent calls get_temporary_closures(run_id, ...)            ─┘  normalizes, then
+                                                               app.evidence_store.record(run_id, category, args, evidence)
+
+agent calls evaluate_parking_request(run_id, location_id, start, end, permit_zone)
    │
    ▼
-gather_evidence(request)              # rules/gather.py
-   │  independently calls every data client (residential, street cleaning,
-   │  temporary closure). Does NOT use anything the agent relayed.
+evidence_store.build_bundle(run_id, location_id, start, end)   # app/evidence_store.py
+   │  returns a ParkingEvidence built ONLY from stored entries whose recorded
+   │  args match this block + interval. Anything not gathered (or gathered for a
+   │  different block/interval) is None.
    ▼
-ParkingEvidence  (each category: VERIFIED | UNAVAILABLE | UNSUPPORTED)
+ParkingEvidence  (each category: VERIFIED | UNAVAILABLE | UNSUPPORTED | None)
    │
    ├─► check_completeness(request, evidence)      # rules/completeness.py
-   │      required categories today: residential, street_cleaning,
-   │      temporary_closure. Any not-VERIFIED  ⇒ incomplete.
+   │      required: residential, street_cleaning, temporary_closure.
+   │      any None or not-VERIFIED  ⇒ incomplete.
    │
    ▼
 evaluate_parking(request, evidence)   # rules/engine.py
    ▼
-ParkingDecision { status, move_by, reasons[], unknown_reasons[] }
+ParkingDecision { status, move_by, reasons[], unknown_reasons[],
+                  start_time_display, end_time_display, move_by_display }
 ```
+
+`start_time_display` / `end_time_display` / `move_by_display` are
+`America/Chicago` strings ("Tuesday, September 9, 2026 at 9:00 AM") computed
+here. The agent restates them verbatim and does no date/time math itself.
+
+`rules/gather.py:gather_evidence()` is the **non-agent** equivalent (fetches all
+categories in one call) — used by tests and future eval baselines, not on the
+agent path.
 
 ## Verdict precedence
 
@@ -54,8 +69,9 @@ treated as in effect for the whole interval — the safe direction (never a fals
 
 ## Completeness ≠ agent behavior
 
-The agent chooses which evidence tools to call. `evaluate_parking_request`
-(the MCP tool) re-gathers everything itself and runs the completeness check, so a
-tool the agent skipped simply shows up as "not gathered" → the affected category
-is unverified → `UNKNOWN`. The agent cannot get a false `LEGAL` by forgetting a
-check.
+The agent chooses which evidence tools to call, and those calls are what the
+evaluator actually uses. But a tool the agent skipped simply has no entry in the
+store → that category is `None` → completeness fails → `UNKNOWN`. The agent
+cannot get a false `LEGAL` by forgetting a check, and it cannot hand-craft or
+edit evidence — only the tools write to the store, and only with what they
+fetched from the City.

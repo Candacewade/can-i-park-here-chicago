@@ -1,10 +1,10 @@
-"""Independently gather every piece of parking evidence for a request.
+"""Independently gather every piece of parking evidence for a request in one call.
 
-The MCP ``evaluate_parking`` tool calls this -- it does NOT trust evidence
-relayed by the agent. The agent's own restriction-tool calls are for its
-understanding and explanation; the verdict is computed from a fresh, deterministic
-gather. (The short cache in ``services.socrata`` means this rarely costs extra
-HTTP round trips.)
+NOT on the agent path. In production the agent calls the individual MCP evidence
+tools (which store their output in ``app.evidence_store``) and then
+``evaluate_parking_request`` reads that stored evidence. This helper is the
+non-agent equivalent: it is used by tests and by any future deterministic-only
+baseline (e.g. an eval harness that scores the agent against a full gather).
 """
 
 from __future__ import annotations

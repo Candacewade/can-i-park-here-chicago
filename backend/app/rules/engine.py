@@ -27,8 +27,21 @@ _CLOSURE_DS = "rzy5-8tax"
 
 
 def _fmt(dt: datetime) -> str:
+    """Short deterministic Chicago-local label, e.g. 'Wed Sep 9 9 AM'."""
     local = dt.astimezone(CHICAGO_TZ)
-    return local.strftime("%a %b %-d %-I:%M %p").replace(":00", "")
+    hour12 = local.strftime("%I").lstrip("0") or "12"
+    body = f"{local.strftime('%a %b')} {local.day} {hour12}:{local.strftime('%M %p')}"
+    return body.replace(":00", "")
+
+
+def _display(dt: datetime) -> str:
+    """Full deterministic Chicago-local string, e.g. 'Tuesday, September 9, 2026 at 9:00 AM'."""
+    local = dt.astimezone(CHICAGO_TZ)
+    hour12 = local.strftime("%I").lstrip("0") or "12"
+    return (
+        f"{local.strftime('%A, %B')} {local.day}, {local.year} "
+        f"at {hour12}:{local.strftime('%M %p')}"
+    )
 
 
 @dataclass
@@ -151,31 +164,29 @@ def evaluate_parking(request: ParkingRequest, evidence: ParkingEvidence) -> Park
     limiting = [c for c in conflicts if c.move_by is not None]
     completeness = check_completeness(request, evidence)
 
-    # NOT_LEGAL: a verified restriction is active at the start time. This holds
-    # even if other evidence is incomplete -- you still cannot park.
+    status = ParkingStatus.LEGAL
+    move_by: datetime | None = None
+    unknown_reasons: list[str] = []
+
     if blocking:
-        return ParkingDecision(
-            status=ParkingStatus.NOT_LEGAL,
-            reasons=reasons,
-            unknown_reasons=[],
-        )
-
-    # UNKNOWN: a safety-required category could not be verified.
-    if not completeness.complete:
-        return ParkingDecision(
-            status=ParkingStatus.UNKNOWN,
-            reasons=reasons,
-            unknown_reasons=completeness.missing,
-        )
-
-    # LEGAL_UNTIL: currently fine, but a verified restriction starts before departure.
-    if limiting:
+        # NOT_LEGAL: a verified restriction is active at the start time. Holds even
+        # if other evidence is incomplete -- you still cannot park.
+        status = ParkingStatus.NOT_LEGAL
+    elif not completeness.complete:
+        # UNKNOWN: a safety-required category could not be verified.
+        status = ParkingStatus.UNKNOWN
+        unknown_reasons = completeness.missing
+    elif limiting:
+        # LEGAL_UNTIL: fine now, but a verified restriction starts before departure.
+        status = ParkingStatus.LEGAL_UNTIL
         move_by = min(c.move_by for c in limiting)  # type: ignore[type-var]
-        return ParkingDecision(
-            status=ParkingStatus.LEGAL_UNTIL,
-            move_by=move_by,
-            reasons=reasons,
-            unknown_reasons=[],
-        )
 
-    return ParkingDecision(status=ParkingStatus.LEGAL, reasons=reasons, unknown_reasons=[])
+    return ParkingDecision(
+        status=status,
+        move_by=move_by,
+        reasons=reasons,
+        unknown_reasons=unknown_reasons,
+        start_time_display=_display(request.start_time),
+        end_time_display=_display(request.end_time),
+        move_by_display=_display(move_by) if move_by is not None else None,
+    )

@@ -8,7 +8,7 @@
                           │
                           ▼
         ┌─────────  Claude parking agent  (Claude Agent SDK, subscription auth)
-        │                 │  decides WHICH evidence to gather
+        │                 │  decides WHICH evidence tools to call (passes a run_id)
         │                 ▼
         │        custom MCP server  (stdio JSON-RPC, app/mcp/server.py)
         │                 │  fixed "parking toolbox" — no arbitrary HTTP/FS/shell
@@ -18,9 +18,17 @@
         │                 ▼
         │        normalized typed evidence  (Pydantic)
         │                 ▼
-        │        deterministic evidence-completeness check     [Slice 2]
+        │        app.evidence_store   ── ephemeral, per-run, application-controlled
+        │                 │  each evidence tool persists its own authoritative output
+        │                 │  keyed by (run_id, category, block/interval args)
         │                 ▼
-        └───────► deterministic rule engine  evaluate_parking()  [Slice 2]
+        │        evaluate_parking_request  reads the stored evidence
+        │                 │  (never re-fetches, never trusts agent-relayed data)
+        │                 ▼
+        │        deterministic evidence-completeness check
+        │                 │  required category missing / not VERIFIED ⇒ UNKNOWN
+        │                 ▼
+        └───────► deterministic rule engine  evaluate_parking()
                           │  the ONLY component that decides legality
                           ▼
                  ParkingDecision: LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN
@@ -39,10 +47,14 @@ The LLM **orchestrates**; it never **adjudicates**.
 | which MCP tools to call | whether parking is legal |
 | tool-call arguments (from the canonical request) | the meaning of a restriction |
 | tool-call order | what to do when evidence is missing |
-| organizing evidence, explaining the final decision | the `ParkingDecision.status` |
+| explaining the final decision in words | the evidence *content* (tools store their own output) |
+|  | the `ParkingDecision.status` / `move_by` |
+|  | date / weekday / time-zone math (backend emits `*_display` strings) |
 
-`UNAVAILABLE`/`UNSUPPORTED` evidence ⇒ the rule engine returns `UNKNOWN`.
-`UNKNOWN` is never presented as success.
+The agent's orchestration is *operationally real* — the evaluator uses exactly
+the evidence the agent's tool calls produced — but it cannot forge a `LEGAL`:
+a skipped required tool = missing evidence = `UNKNOWN`. `UNAVAILABLE` /
+`UNSUPPORTED` / not-gathered ⇒ `UNKNOWN`, never presented as success.
 
 ## Components
 
@@ -51,10 +63,11 @@ The LLM **orchestrates**; it never **adjudicates**.
 | `backend/app/models/` | `ParkingRequest`, evidence schemas, `ParkingDecision` | 1 |
 | `backend/app/locations/` | canonical location registry (`location_id` → block) | 1 |
 | `backend/app/services/` | plain Python clients over 3 City datasets; failure → `UNAVAILABLE` | 1–2 |
-| `backend/app/mcp/server.py` | custom stdio MCP server exposing the parking toolbox + `evaluate_parking_request` | 1–2 |
-| `backend/app/agent/` | Claude Agent SDK integration + tool-call tracing | 1 |
+| `backend/app/evidence_store.py` | ephemeral per-run store; evidence tools write, evaluator reads | 2 |
+| `backend/app/mcp/` | `handlers.py` (testable logic) + `server.py` (stdio MCP wrappers) | 1–2 |
+| `backend/app/agent/` | Claude Agent SDK integration + tool-call tracing; generates the `run_id` | 1 |
 | `backend/app/cli.py` | developer runner: one request → visible trace | 1 |
-| `backend/app/rules/` | `gather_evidence` + `check_completeness` + `evaluate_parking()` | 2 ✅ |
+| `backend/app/rules/` | `check_completeness` + `evaluate_parking()`; `gather_evidence` (non-agent baseline) | 2 ✅ |
 | `backend/app/api/` | FastAPI app | 3 |
 | `frontend/` | React (Vite + TS) structured-selector UI | 3 |
 | `backend/evals/` | agent evaluation scenarios + metrics | 4 |
