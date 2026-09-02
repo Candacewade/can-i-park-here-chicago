@@ -1,5 +1,5 @@
 """Watch model. Deliberately carries NO personally identifying information --
-this object is serialized into a repo-committed watches.json."""
+this object is serialized into watches.json in the private data repo."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import CHICAGO_TZ
 
@@ -38,6 +38,13 @@ class Watch(BaseModel):
         default_factory=list,
         description="Keys of messages already sent, e.g. 'morning:2026-09-08', 'urgent:ab12cd34'.",
     )
+
+    @field_validator("start_time", "end_time", "created_at", "last_checked_at")
+    @classmethod
+    def _localize_naive(cls, v: datetime | None) -> datetime | None:
+        if v is not None and v.tzinfo is None:
+            return v.replace(tzinfo=CHICAGO_TZ)
+        return v
 
     def is_active(self, now: datetime) -> bool:
         return self.status == WatchStatus.ACTIVE and now < self.end_time
