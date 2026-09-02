@@ -212,3 +212,37 @@ async def test_resolved_watch_produces_no_urgent_email(monkeypatch, sent):
     )
     assert report.checked == 0
     assert report.emails_sent == 0
+
+
+# --- after an extend: the endpoint dropped reminder keys, kept morning/urgent --
+
+async def test_after_extend_new_restriction_reminder_fires(monkeypatch, sent):
+    """The extend endpoint drops reminder:* keys. A newly-relevant move-by three
+    days out then still produces the T-3d reminder that the old (already-sent)
+    key would have suppressed."""
+    move_by = NOW + timedelta(days=3)  # exactly REMINDER_DAYS_AHEAD
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL_UNTIL, move_by=move_by)
+    w = _watch(
+        end_time=NOW + timedelta(days=20),
+        notified=["morning:2026-09-08", "urgent:oldcause"],  # reminder:* already dropped
+    )
+    report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
+    assert report.emails_sent == 1
+    assert "REMINDER_3D" in report.outcomes[0].messages
+
+
+async def test_after_extend_unchanged_urgent_cause_not_resent(monkeypatch, sent):
+    _stub_decision(
+        monkeypatch, ParkingStatus.NOT_LEGAL, urgent=True, reason="zone 100 permit required"
+    )
+    from app.monitor.schedule import urgent_cause_key
+
+    cause = urgent_cause_key(
+        ParkingDecision(status=ParkingStatus.NOT_LEGAL, urgent_alert=True,
+                        urgent_reason="zone 100 permit required")
+    )
+    w = _watch(notified=["morning:2026-09-08", cause])
+    report = await run_monitor(
+        now=NOW, store=MemStore([w]), use_agent=False, urgent_only=True
+    )
+    assert report.emails_sent == 0   # same cause hash -> no duplicate alert

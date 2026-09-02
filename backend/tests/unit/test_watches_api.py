@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.api import main as api_main
 from app.config import CHICAGO_TZ
+from app.models.decision import ParkingDecision, ParkingStatus
 from app.monitor.models import Watch, WatchStatus
 
 client = TestClient(api_main.app)
@@ -244,6 +245,103 @@ def test_replace_unknown_new_location_leaves_old_active(_mem):
     assert r.status_code == 422
     assert _mem.w[old["watch_id"]].status is WatchStatus.ACTIVE
     assert len(_mem.w) == 1  # no second watch created
+
+
+# --- extend parking time ------------------------------------------
+
+@pytest.fixture
+def _stub_eval(monkeypatch):
+    """Deterministic engine + City data stubbed; the test controls the verdict."""
+    box = {"status": ParkingStatus.LEGAL, "move_by_display": None,
+           "urgent_alert": False, "urgent_reason": None}
+    monkeypatch.setattr(api_main, "gather_evidence", lambda req: object())
+    monkeypatch.setattr(
+        api_main, "evaluate_parking",
+        lambda req, ev: ParkingDecision(
+            status=box["status"], move_by_display=box["move_by_display"],
+            urgent_alert=box["urgent_alert"], urgent_reason=box["urgent_reason"],
+            start_time_display="S", end_time_display="E",
+        ),
+    )
+    return box
+
+
+def _extend(wid, token, end_dt):
+    return client.post(
+        f"/api/watches/{wid}/extend",
+        json={"token": token, "end_time": end_dt.isoformat()},
+    )
+
+
+def test_extend_pushes_end_time_and_re_evaluates(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    before = _mem.w[wid]
+    new_end = before.end_time + timedelta(days=12)
+
+    _stub_eval["status"] = ParkingStatus.LEGAL_UNTIL
+    _stub_eval["move_by_display"] = "Thursday, September 10, 2026 at 9:00 AM"
+
+    r = _extend(wid, tok, new_end)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["status"] == "LEGAL_UNTIL"
+    assert out["move_by_display"] == "Thursday, September 10, 2026 at 9:00 AM"
+    assert "move by" in out["summary"].lower()
+
+    w = _mem.w[wid]
+    assert w.end_time == new_end                          # persisted
+    assert w.watch_id == before.watch_id                  # same identity
+    assert w.manage_token == tok                          # unchanged
+    assert w.location_id == before.location_id
+    assert w.start_time == before.start_time
+    assert w.permit_zone == before.permit_zone
+    assert w.status is WatchStatus.ACTIVE
+    assert _mem.notify_map[wid] == "driver@example.com"   # recipient untouched
+
+
+def test_extend_requires_correct_token(_mem, _stub_eval):
+    body = _create()
+    wid = body["watch_id"]
+    new_end = _mem.w[wid].end_time + timedelta(days=1)
+    assert _extend(wid, "wrong", new_end).status_code == 404
+    assert _mem.w[wid].end_time != new_end
+
+
+def test_extend_another_watch_token_rejected(_mem, _stub_eval):
+    a = _create(email="a@example.com")
+    b = _create(email="b@example.com")
+    new_end = _mem.w[b["watch_id"]].end_time + timedelta(days=1)
+    assert _extend(b["watch_id"], a["manage_token"], new_end).status_code == 404
+
+
+def test_extend_rejects_resolved_watch(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    client.delete(f"/api/watches/{wid}?token={tok}")
+    r = _extend(wid, tok, _mem.w[wid].end_time + timedelta(days=1))
+    assert r.status_code == 409
+
+
+def test_extend_rejects_end_not_later(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    cur = _mem.w[wid].end_time
+    assert _extend(wid, tok, cur).status_code == 422                    # equal
+    assert _extend(wid, tok, cur - timedelta(hours=1)).status_code == 422  # earlier
+    assert _mem.w[wid].end_time == cur
+
+
+def test_extend_drops_reminder_keys_keeps_morning_and_urgent(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    _mem.w[wid].notified = [
+        "morning:2026-09-02", "urgent:abc12345", "reminder:3d", "reminder:night",
+    ]
+
+    _extend(wid, tok, _mem.w[wid].end_time + timedelta(days=10))
+
+    assert set(_mem.w[wid].notified) == {"morning:2026-09-02", "urgent:abc12345"}
 
 
 def test_monitor_run_endpoint(monkeypatch, _mem):

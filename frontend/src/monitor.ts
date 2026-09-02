@@ -8,7 +8,7 @@
  *   2. otherwise, restore the active watch from localStorage.
  * A malformed / invalid link never destroys a valid stored watch.
  */
-import type { MonitorState, WatchView } from "./types";
+import type { ExtendWatchResponse, MonitorState, WatchView } from "./types";
 
 const KEY = "ciph_monitor";
 
@@ -37,6 +37,15 @@ export function loadStoredMonitor(): MonitorState | null {
   return null;
 }
 
+/** The requested management action from the URL (`?action=extend`), if any. */
+export function readManageAction(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get("action");
+  } catch {
+    return null;
+  }
+}
+
 /** The watch the current URL explicitly asks to manage, if any. */
 export function readManageLink(): { watchId: string; token: string } | null {
   try {
@@ -52,7 +61,19 @@ export function readManageLink(): { watchId: string; token: string } | null {
 
 /** True when we have a watch+token but not enough to render its card yet. */
 export function needsHydration(m: MonitorState | null): boolean {
-  return !!m && (!m.locationSummary || !m.throughDisplay);
+  return !!m && (!m.locationSummary || !m.throughDisplay || !m.endLocal);
+}
+
+/** Is `next` ("YYYY-MM-DDTHH:MM") strictly later than `current`? */
+export function isLaterLocal(current: string, next: string): boolean {
+  const a = new Date(`${current}:00`).getTime();
+  const b = new Date(`${next}:00`).getTime();
+  return Number.isFinite(a) && Number.isFinite(b) && b > a;
+}
+
+/** Fold a successful extend response back into the stored monitor. */
+export function applyExtend(m: MonitorState, r: ExtendWatchResponse): MonitorState {
+  return { ...m, throughDisplay: r.through_display, endLocal: r.end_time_local };
 }
 
 /** Strip the capability params from the address bar once we've handled them. */
@@ -89,6 +110,7 @@ export async function resolveStartupMonitor(
         token: link.token,
         locationSummary: w.location_summary ?? undefined,
         throughDisplay: w.through_display ?? undefined,
+        endLocal: w.end_time_local ?? undefined,
       };
       saveMonitor(m); // Watch B replaces whatever was stored
       return { monitor: m, linkStatus: "none" };

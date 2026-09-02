@@ -3,6 +3,7 @@ import type {
   AnalyzeResponse,
   CreateWatchResponse,
   ExampleAddress,
+  ExtendWatchResponse,
   ReplaceWatchResponse,
   ResolveResponse,
   WatchView,
@@ -89,6 +90,19 @@ export function stopWatch(watchId: string, token: string): Promise<unknown> {
     `${BASE}/api/watches/${encodeURIComponent(watchId)}?token=${encodeURIComponent(token)}`,
     { method: "DELETE" },
   ).then((r) => json<unknown>(r));
+}
+
+/** Push the end time later on the SAME watch. `endLocal` is "YYYY-MM-DDTHH:MM". */
+export function extendWatch(
+  watchId: string,
+  token: string,
+  endLocal: string,
+): Promise<ExtendWatchResponse> {
+  return fetch(`${BASE}/api/watches/${encodeURIComponent(watchId)}/extend`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token, end_time: `${endLocal}:00` }),
+  }).then((r) => json<ExtendWatchResponse>(r));
 }
 
 export function replaceWatch(

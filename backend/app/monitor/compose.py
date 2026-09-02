@@ -29,7 +29,7 @@ from app.monitor.email_render import (
     render_html,
     render_text,
 )
-from app.monitor.links import change_spot_url, unsubscribe_url
+from app.monitor.links import change_spot_url, extend_time_url, unsubscribe_url
 from app.monitor.models import Watch
 from app.monitor.schedule import MessageType
 from app.rules.engine import _fmt as _short_marker  # deterministic short Chicago label
@@ -234,8 +234,9 @@ def _footer_nodes(watch: Watch) -> list:
         P(f"Watch ID: {watch.watch_id}", muted=True, small=True),
         Actions(
             [
-                ("Stop monitoring this parking spot", unsubscribe_url(watch)),
+                ("Extend parking time", extend_time_url(watch)),
                 ("Change parking spot", change_spot_url(watch)),
+                ("Stop monitoring this parking spot", unsubscribe_url(watch)),
             ]
         ),
     ]

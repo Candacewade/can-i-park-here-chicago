@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createWatch, getWatch, replaceWatch, stopWatch } from "./api";
+import { createWatch, extendWatch, getWatch, replaceWatch, stopWatch } from "./api";
 import type { WhenInput } from "./types";
 
 const when: WhenInput = {
@@ -68,6 +68,35 @@ describe("watch api", () => {
     const [url, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
     expect((init as RequestInit).method).toBe("DELETE");
     expect(String(url)).toContain("/api/watches/wch_9?token=t");
+  });
+
+  it("extendWatch posts token + new end_time to the extend endpoint", async () => {
+    const f = mockFetch(200, {
+      watch_id: "wch_1",
+      manage_token: "tok_1",
+      end_time: "2026-09-06T12:00:00-05:00",
+      end_time_local: "2026-09-06T12:00",
+      through_display: "Sept 6",
+      status: "LEGAL_UNTIL",
+      move_by_display: "Sept 10 9:00 AM",
+      urgent_alert: false,
+      summary: "move by",
+    });
+    vi.stubGlobal("fetch", f);
+
+    const r = await extendWatch("wch_1", "tok_1", "2026-09-06T12:00");
+    expect(r.status).toBe("LEGAL_UNTIL");
+    const [url, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(String(url)).toContain("/api/watches/wch_1/extend");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      token: "tok_1",
+      end_time: "2026-09-06T12:00:00",
+    });
+  });
+
+  it("extendWatch surfaces a 422 (end not later)", async () => {
+    vi.stubGlobal("fetch", mockFetch(422, { detail: "must be later than the current end time" }));
+    await expect(extendWatch("w", "t", "2026-09-01T00:00")).rejects.toThrow(/later than/);
   });
 
   it("replaceWatch posts token + new location; omitted email -> null (reuse)", async () => {

@@ -10,6 +10,7 @@ import type { LinkStatus } from "./monitor";
 import {
   loadStoredMonitor,
   needsHydration,
+  readManageAction,
   readManageLink,
   resolveStartupMonitor,
   saveMonitor,
@@ -61,6 +62,7 @@ export default function App() {
     () => (readManageLink() ? "loading" : "none"),
   );
   const hadLink = useRef(!!readManageLink());
+  const wantExtend = useRef(readManageAction() === "extend");
 
   const updateMonitor = (m: MonitorState | null) => {
     setMonitor(m);
@@ -100,6 +102,7 @@ export default function App() {
           ...monitor,
           locationSummary: w.location_summary ?? monitor.locationSummary,
           throughDisplay: w.through_display ?? monitor.throughDisplay,
+          endLocal: w.end_time_local ?? monitor.endLocal,
         });
       })
       .catch(() => {
@@ -210,6 +213,7 @@ export default function App() {
           monitor={monitor}
           onChange={updateMonitor}
           onStartChanging={startChanging}
+          extendOnOpen={wantExtend.current}
         />
       )}
 

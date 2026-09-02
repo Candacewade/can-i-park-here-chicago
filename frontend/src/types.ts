@@ -80,6 +80,20 @@ export interface ReplaceWatchResponse {
   email_registered: boolean;
 }
 
+export interface ExtendWatchResponse {
+  watch_id: string;
+  manage_token: string;
+  end_time: string;
+  end_time_local: string;
+  through_display: string;
+  status: ParkingStatus;
+  start_time_display: string | null;
+  end_time_display: string | null;
+  move_by_display: string | null;
+  urgent_alert: boolean;
+  summary: string;
+}
+
 /** Lightweight, persisted in localStorage. No account, no server session. */
 export interface MonitorState {
   watchId: string;
@@ -87,6 +101,8 @@ export interface MonitorState {
   email?: string;
   locationSummary?: string;
   throughDisplay?: string;
+  /** "YYYY-MM-DDTHH:MM" America/Chicago wall time — prefills the extend form. */
+  endLocal?: string;
 }
 
 export interface WatchView {
@@ -102,6 +118,7 @@ export interface WatchView {
   notified_count: number;
   location_summary: string | null;
   through_display: string | null;
+  end_time_local: string | null;
 }
 
 export interface AddressInput {

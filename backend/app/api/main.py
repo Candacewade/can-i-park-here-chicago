@@ -9,6 +9,7 @@
     GET  /api/watches/{id}/unsubscribe    email link -> confirmation page (no mutation)
     POST /api/watches/{id}/unsubscribe    confirm -> resolve the watch, drop its email
     POST /api/watches/{id}/replace        move the monitored spot (resolve old + create new)
+    POST /api/watches/{id}/extend         push the end_time later on the SAME watch
     POST /api/monitor/run                 trigger the daily pass (protected)
 
 One process contains FastAPI + the Claude agent + the MCP server + rule engine
@@ -20,6 +21,7 @@ from __future__ import annotations
 import html
 import json
 import secrets
+from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -33,6 +35,8 @@ from app.api.schemas import (
     CreateWatchRequest,
     CreateWatchResponse,
     ExampleAddress,
+    ExtendWatchRequest,
+    ExtendWatchResponse,
     MonitorRunResponse,
     ReplaceWatchRequest,
     ReplaceWatchResponse,
@@ -42,7 +46,13 @@ from app.api.schemas import (
     ToolCallView,
     WatchView,
 )
-from app.config import APP_BASE_URL, FRONTEND_ORIGINS, MONITOR_TOKEN, resolve_claude_cli
+from app.config import (
+    APP_BASE_URL,
+    CHICAGO_TZ,
+    FRONTEND_ORIGINS,
+    MONITOR_TOKEN,
+    resolve_claude_cli,
+)
 from app.locations.registry import LocationNotFoundError, get_location, remember_location
 from app.locations.resolve import resolve_address
 from app.models.decision import ParkingStatus
@@ -52,6 +62,8 @@ from app.monitor.models import Watch, WatchStatus
 from app.monitor.run import run_monitor
 from app.monitor.store import get_store
 from app.rules.engine import _display as _display_ct  # America/Chicago long-form label
+from app.rules.engine import evaluate_parking
+from app.rules.gather import gather_evidence
 
 app = FastAPI(title="Can I Park Here? — Chicago", version="0.4.0")
 
@@ -204,7 +216,13 @@ def _watch_view(w: Watch) -> WatchView:
         notified_count=len(w.notified),
         location_summary=summary,
         through_display=_display_ct(w.end_time),
+        end_time_local=_local_wall(w.end_time),
     )
+
+
+def _local_wall(dt: datetime) -> str:
+    """'YYYY-MM-DDTHH:MM' in America/Chicago -- what the date/time inputs expect."""
+    return dt.astimezone(CHICAGO_TZ).strftime("%Y-%m-%dT%H:%M")
 
 
 def _new_watch(location_id: str, start_time, end_time, permit_zone: str | None) -> Watch:
@@ -395,6 +413,73 @@ def replace_watch(watch_id: str, payload: ReplaceWatchRequest) -> ReplaceWatchRe
         watch_id=new.watch_id,
         manage_token=new.manage_token,
         email_registered=registered,
+    )
+
+
+_EXTEND_SUMMARY = {
+    ParkingStatus.LEGAL: "Your parking is still clear through the new end time.",
+    ParkingStatus.LEGAL_UNTIL: "Your extended stay changes your parking status — "
+    "you'll need to move by {move_by}.",
+    ParkingStatus.NOT_LEGAL: "Your extended stay is not legal here. {reason}",
+    ParkingStatus.UNKNOWN: "We couldn't verify parking for the extended window.",
+}
+
+
+@app.post("/api/watches/{watch_id}/extend", response_model=ExtendWatchResponse)
+def extend_watch(watch_id: str, payload: ExtendWatchRequest) -> ExtendWatchResponse:
+    """Push the end of the parking window later on the SAME watch. Location, side,
+    start time, permit, recipient email and manage_token are all untouched."""
+    store = get_store()
+    watches = store.load()
+    watch = _require_watch(watch_id, payload.token, watches)
+    if watch.status is not WatchStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail="this watch is no longer active")
+
+    new_end = payload.end_time
+    if new_end.tzinfo is None:
+        new_end = new_end.replace(tzinfo=CHICAGO_TZ)
+    if new_end <= watch.end_time:
+        raise HTTPException(
+            status_code=422, detail="the new end time must be later than the current end time"
+        )
+
+    # Re-evaluate the EXTENDED interval first -- if the City data is unavailable we
+    # fail before persisting anything.
+    request = ParkingRequest(
+        location_id=watch.location_id,
+        start_time=watch.start_time,
+        end_time=new_end,
+        permit_zone=watch.permit_zone,
+    )
+    decision = evaluate_parking(request, gather_evidence(request))
+
+    watch.end_time = new_end
+    # notified: the reminder keys are relative to move_by, which the longer window
+    # may have changed -- drop them so a T-3d / night-before reminder for the new
+    # deadline can still fire. morning:<date> and urgent:<cause-hash> stay: a same
+    # calendar day needs no second summary, and an unchanged urgent cause must not
+    # re-alert. A NEW restriction produces a NEW cause hash and notifies normally.
+    watch.notified = [k for k in watch.notified if not k.startswith("reminder:")]
+    watch.last_decision = decision.status.value
+    watch.last_checked_at = datetime.now(tz=CHICAGO_TZ)
+    store.save(watches)
+
+    reason = decision.urgent_reason or "a verified restriction applies"
+    summary = _EXTEND_SUMMARY[decision.status].format(
+        move_by=decision.move_by_display or "your deadline", reason=reason
+    )
+    return ExtendWatchResponse(
+        watch_id=watch.watch_id,
+        manage_token=watch.manage_token,
+        end_time=watch.end_time,
+        end_time_local=_local_wall(watch.end_time),
+        through_display=_display_ct(watch.end_time),
+        status=decision.status,
+        start_time_display=decision.start_time_display,
+        end_time_display=decision.end_time_display,
+        move_by_display=decision.move_by_display,
+        urgent_alert=decision.urgent_alert,
+        summary=summary,
     )
 
 

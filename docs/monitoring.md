@@ -144,7 +144,9 @@ when present, fills exactly one "context / alternatives" section — it is never
 appended as a second copy of the explanation. For `LEGAL_UNTIL` the restriction
 that actually sets `move_by` is the one highlighted; later windows are summarised
 in one line, not enumerated. Dynamic text is HTML-escaped; link params are
-URL-encoded.
+URL-encoded. The footer carries three capability-gated links — **Extend parking
+time**, **Change parking spot**, **Stop monitoring this parking spot** — as plain
+deep links / a confirmation page; none of them mutate on open.
 
 ## API surface
 
@@ -158,6 +160,10 @@ POST   /api/watches/{id}/unsubscribe?token=...   the page's "Stop monitoring" bu
 POST   /api/watches/{id}/replace       { token, location_id, start_time, end_time, permit_zone, email? }
                                        -> resolve old + create new in ONE store write
                                        -> { old_watch_id, watch_id, manage_token, email_registered }
+POST   /api/watches/{id}/extend        { token, end_time }  -- SAME watch, later end only
+                                       -> deterministic re-eval of the extended interval
+                                       -> { watch_id, manage_token, end_time, through_display,
+                                            status, move_by_display, urgent_alert, summary }
 POST   /api/monitor/run                run the pass now (X-Monitor-Token if MONITOR_TOKEN set)
 ```
 
@@ -182,6 +188,32 @@ fine — `Watch.model_validate` mints one from the field default. `WatchStore.lo
 detects rows whose stored JSON lacked the key and re-saves the dict **once**, so
 the minted token is stable for every later read and every email link. No manual
 migration; no crash. (`test_pre_existing_watch_without_manage_token_is_backfilled`.)
+
+### Extend parking time (`POST /api/watches/{id}/extend`)
+
+Keep the **same watch** — location, side, `start_time`, `permit_zone`, recipient
+email and `manage_token` are all untouched — and push `end_time` later.
+
+1. `manage_token` checked (`compare_digest`); `404` on a wrong/foreign token.
+2. watch must still be `ACTIVE` → else `409`.
+3. new `end_time` must be strictly later than the current one → else `422`.
+4. the deterministic engine re-evaluates the **extended** interval *before*
+   anything is persisted (City data down ⇒ nothing changes); the response carries
+   that verdict so the UI can immediately say "still clear" **or** "move by …".
+   The LLM is not involved.
+5. one `store.save`.
+
+**`notified` after an extend.** The longer interval can surface a restriction
+that was previously irrelevant, and it must still be able to notify:
+
+| key | on extend | why |
+|---|---|---|
+| `reminder:3d`, `reminder:night` | **dropped** | they are relative to `move_by`, which the new window may have moved; keeping an already-sent key would suppress the reminder for the *new* deadline |
+| `morning:<date>` | kept | the same calendar day needs no second summary — the UI already showed the new status, and tomorrow's summary reflects the new window |
+| `urgent:<cause-hash>` | kept | an unchanged blocking cause must not re-alert. A **newly relevant** restriction produces a **different** `urgent_reason` → a different hash → not in `notified` → it fires normally |
+
+So the smallest correct rule is: **drop `reminder:*`, keep everything else.**
+Cause-hash dedup already does the rest. (`test_extend_drops_reminder_keys_keeps_morning_and_urgent`, `test_after_extend_new_restriction_reminder_fires`, `test_after_extend_unchanged_urgent_cause_not_resent`.)
 
 **Change parking spot** = `POST /api/watches/{id}/replace`. The old watch flips to
 `resolved` and the new one is written in a **single `store.save`**, so a partial
@@ -213,10 +245,15 @@ the stored active watch (refresh / new tab / return visit).
 - **`MonitorBanner.tsx`** — a persistent card at the top of the home view
   whenever a monitor is active, *before and regardless of* any parking check:
   `🔔 Monitoring active` + block + through-date + **Change parking spot** /
-  **Stop monitoring**. When the stored monitor lacks display fields (an email
-  link on a fresh device), `App` hydrates them from
-  `GET /api/watches/{id}?token=…` (`location_summary`, `through_display`); a
-  `404` / non-`active` status ⇒ the stale localStorage entry is dropped.
+  **Extend parking time** / **Stop monitoring**. "Extend" opens an inline panel
+  (current end prefilled from `end_time_local`, new date/time) → `POST …/extend`
+  → the banner shows *"✅ Monitoring extended"* plus the re-evaluated verdict
+  ("still clear" or "move by …"), and `localStorage` + the "Through" line update.
+  When the stored monitor lacks display fields (an email link on a fresh device),
+  `App` hydrates them from `GET /api/watches/{id}?token=…` (`location_summary`,
+  `through_display`, `end_time_local`); a `404` / non-`active` status ⇒ the stale
+  localStorage entry is dropped. The email **Extend parking time** link
+  (`/?manage=…&token=…&action=extend`) opens the banner straight into that panel.
 - **`MonitorPanel.tsx`** — the result-tied card: **🔔 Monitor this parking
   spot** → email → `POST /api/watches` when there's no monitor; **Confirm move**
   → `POST …/replace` when "Change parking spot" has sent the user back through

@@ -24,3 +24,13 @@ def change_spot_url(watch: Watch) -> str:
     base = APP_BASE_URL or ""
     q = urlencode({"manage": watch.watch_id, "token": watch.manage_token})
     return f"{base}/?{q}"
+
+
+def extend_time_url(watch: Watch) -> str:
+    """Deep link that opens the extend-time UI for this watch. Opening it changes
+    nothing; the mutation is POST /api/watches/{id}/extend from the app."""
+    base = APP_BASE_URL or ""
+    q = urlencode(
+        {"manage": watch.watch_id, "token": watch.manage_token, "action": "extend"}
+    )
+    return f"{base}/?{q}"

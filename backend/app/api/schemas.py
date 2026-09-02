@@ -165,6 +165,29 @@ class ReplaceWatchResponse(BaseModel):
     email_registered: bool
 
 
+class ExtendWatchRequest(BaseModel):
+    """Keep the same spot / side / email / start / permit / watch identity -- only
+    push the end of the parking window later."""
+
+    token: str = Field(min_length=1)
+    end_time: datetime
+
+
+class ExtendWatchResponse(BaseModel):
+    watch_id: str
+    manage_token: str            # unchanged; echoed so the client keeps its copy
+    end_time: datetime
+    end_time_local: str          # "YYYY-MM-DDTHH:MM" America/Chicago wall time
+    through_display: str
+    # deterministic re-evaluation of the *extended* interval
+    status: ParkingStatus
+    start_time_display: str | None = None
+    end_time_display: str | None = None
+    move_by_display: str | None = None
+    urgent_alert: bool = False
+    summary: str
+
+
 class WatchView(BaseModel):
     """No email is ever echoed back."""
 
@@ -182,6 +205,7 @@ class WatchView(BaseModel):
     # "change parking spot" link on a fresh device) can render the monitor card.
     location_summary: str | None = None
     through_display: str | None = None
+    end_time_local: str | None = None   # "YYYY-MM-DDTHH:MM" -- prefill the extend form
 
 
 class MonitorRunResponse(BaseModel):

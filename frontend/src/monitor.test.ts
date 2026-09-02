@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  applyExtend,
   clearManageLinkFromUrl,
+  isLaterLocal,
   loadStoredMonitor,
   needsHydration,
   readManageLink,
   resolveStartupMonitor,
   saveMonitor,
 } from "./monitor";
-import type { WatchView } from "./types";
+import type { ExtendWatchResponse, WatchView } from "./types";
 
 const watchA = {
   watchId: "wch_A",
@@ -15,6 +17,7 @@ const watchA = {
   email: "wade.candace1@gmail.com",
   locationSummary: "W Grant Pl … north side (Lincoln Park)",
   throughDisplay: "Wednesday, September 3, 2026 at 9:00 AM",
+  endLocal: "2026-09-03T09:00",
 };
 
 function view(over: Partial<WatchView>): WatchView {
@@ -31,6 +34,7 @@ function view(over: Partial<WatchView>): WatchView {
     notified_count: 0,
     location_summary: "N Clark St … west side (Lincoln Park)",
     through_display: "Saturday, September 5, 2026 at 9:00 AM",
+    end_time_local: "2026-09-05T09:00",
     ...over,
   };
 }
@@ -64,7 +68,15 @@ describe("stored monitor", () => {
   it("needsHydration", () => {
     expect(needsHydration(watchA)).toBe(false);
     expect(needsHydration({ watchId: "x", token: "y" })).toBe(true);
+    expect(needsHydration({ ...watchA, endLocal: undefined })).toBe(true); // legacy entry
     expect(needsHydration(null)).toBe(false);
+  });
+
+  it("refresh restores the updated end time after an extend", () => {
+    saveMonitor({ ...watchA, endLocal: "2026-09-06T12:00", throughDisplay: "Sept 6, 12:00 PM" });
+    const back = loadStoredMonitor();
+    expect(back?.endLocal).toBe("2026-09-06T12:00");
+    expect(back?.throughDisplay).toBe("Sept 6, 12:00 PM");
   });
 
   it("readManageLink / clearManageLinkFromUrl", () => {
@@ -139,5 +151,44 @@ describe("resolveStartupMonitor precedence", () => {
     const r = await resolveStartupMonitor(vi.fn(async () => view({ status: "resolved" })));
     expect(r).toEqual({ monitor: null, linkStatus: "resolved" });
     expect(loadStoredMonitor()).toBeNull();
+  });
+
+  it("adopting a deep-link watch carries its end_time_local", async () => {
+    history.replaceState({}, "", "/?manage=wch_B&token=tokB");
+    const r = await resolveStartupMonitor(
+      vi.fn(async () => view({ status: "active", end_time_local: "2026-09-05T09:00" })),
+    );
+    expect(r.monitor?.endLocal).toBe("2026-09-05T09:00");
+  });
+});
+
+describe("extend helpers", () => {
+  it("isLaterLocal only accepts a strictly later time", () => {
+    expect(isLaterLocal("2026-09-03T09:00", "2026-09-06T12:00")).toBe(true);
+    expect(isLaterLocal("2026-09-03T09:00", "2026-09-03T09:00")).toBe(false); // equal
+    expect(isLaterLocal("2026-09-03T09:00", "2026-09-02T09:00")).toBe(false); // earlier
+  });
+
+  it("applyExtend folds the new end into the monitor, keeping identity + email", () => {
+    const resp = {
+      watch_id: "wch_A",
+      manage_token: "tokA-000000000000",
+      end_time: "2026-09-06T12:00:00-05:00",
+      end_time_local: "2026-09-06T12:00",
+      through_display: "Sunday, September 6, 2026 at 12:00 PM",
+      status: "LEGAL_UNTIL",
+      start_time_display: "…",
+      end_time_display: "…",
+      move_by_display: "Thursday, September 10, 2026 at 9:00 AM",
+      urgent_alert: false,
+      summary: "…",
+    } satisfies ExtendWatchResponse;
+
+    const next = applyExtend(watchA, resp);
+    expect(next.endLocal).toBe("2026-09-06T12:00");
+    expect(next.throughDisplay).toBe("Sunday, September 6, 2026 at 12:00 PM");
+    expect(next.watchId).toBe("wch_A");
+    expect(next.token).toBe("tokA-000000000000");
+    expect(next.email).toBe("wade.candace1@gmail.com");
   });
 });

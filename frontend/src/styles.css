@@ -116,11 +116,16 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   display: flex; justify-content: space-between; gap: 16px; align-items: center;
   flex-wrap: wrap; border-color: var(--accent); background: #f4f9ff;
 }
-.mb-main { min-width: 220px; }
+.mb-main { min-width: 220px; flex: 1; }
 .mb-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
 .mb-loc { font-weight: 600; font-size: 14px; }
 .monitor-banner .note { margin: 2px 0; }
-.mb-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.mb-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.mb-extend { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.mb-extend .row { margin: 6px 0; }
+.mb-extend-done { margin-top: 10px; padding: 10px; background: #f4f9ff; border-radius: 8px; }
+.mb-extend-done p { margin: 6px 0; font-size: 14px; }
+.mb-moveby { font-size: 14px; }
 .card.monitor h3 { font-size: 15px; margin: 0 0 10px; }
 .card.monitor.active { border-color: var(--accent); }
 .card.monitor p { margin: 4px 0; font-size: 14px; }

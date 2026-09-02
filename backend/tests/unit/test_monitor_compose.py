@@ -182,6 +182,29 @@ def test_urgent_email_has_working_unsubscribe_link():
     assert "/api/watches/wch_abc123/unsubscribe?token=" in email.body_text
 
 
+def test_footer_has_all_three_management_links_capability_gated():
+    for decision, msg in (
+        (_legal_until_decision(), MessageType.MORNING),
+        (_not_legal_decision(), MessageType.URGENT),
+    ):
+        email = compose_email(_watch(), decision, msg)
+        for label in ("Extend parking time", "Change parking spot",
+                      "Stop monitoring this parking spot"):
+            assert label in email.body_html
+            assert label in email.body_text
+        # the extend link is a plain deep link into the app (opening it mutates
+        # nothing) and carries the capability token; text fallback keeps it raw
+        extend = (
+            "https://app.example.com/?manage=wch_abc123"
+            "&token=tok_secret_value_1234567890&action=extend"
+        )
+        assert extend in email.body_text
+        # in HTML the & is attribute-escaped
+        assert "manage=wch_abc123&amp;token=tok_secret_value_1234567890&amp;action=extend" in (
+            email.body_html
+        )
+
+
 def test_link_dynamic_values_cannot_break_the_attribute():
     w = _watch(watch_id="wch_x", manage_token='a b"<c>')
     html = compose_email(w, _not_legal_decision(), MessageType.URGENT).body_html

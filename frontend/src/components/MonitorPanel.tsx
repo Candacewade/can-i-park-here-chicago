@@ -55,6 +55,7 @@ export function MonitorPanel({
         email: email.trim(),
         locationSummary: blockSummary,
         throughDisplay: throughDisplay ?? undefined,
+        endLocal: `${when.end_date}T${when.end_time}`,
       });
       setPhase("idle");
       setNotice(
@@ -83,6 +84,7 @@ export function MonitorPanel({
         email: monitor.email,
         locationSummary: blockSummary,
         throughDisplay: throughDisplay ?? undefined,
+        endLocal: `${when.end_date}T${when.end_time}`,
       });
       onCancelChanging();
       setPhase("idle");
