@@ -8,6 +8,87 @@ Follow this document unless the existing repository contains something that make
 
 ---
 
+# 0. ARCHITECTURE REVISION — 2026-09-01
+
+> Added after Slices 1–2 shipped. Where this section conflicts with the older
+> numbered sections (esp. 15, 17, 26–33, 55), **this section wins**. Rationale
+> and detail live in `docs/architecture.md`, `docs/agent-design.md`,
+> `docs/rule-engine.md`, `docs/monitoring.md`.
+
+## The agent no longer gates the safety checks
+
+Slices 1–2 let the Claude agent choose *every* evidence tool, including the core
+legality checks, with a deterministic completeness layer as the backstop. That
+is now inverted.
+
+**Deterministic code owns — always, unconditionally, agent cannot influence:**
+
+* the **required/core evidence gather** every request:
+  residential permit zone, street cleaning, temporary street closures, and the
+  winter overnight-ban calendar
+* **evidence completeness** (which categories must be VERIFIED; season-aware)
+* **legality**: `LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN` and `move_by`
+* **hard urgent-alert triggers**: if a verified restriction requires the car to
+  move within a defined urgent window, deterministic logic fires the alert.
+  Claude may prioritize and phrase it; Claude may not decide *whether* it fires.
+
+**The Claude agent owns — judgment, never legality:**
+
+* **conditional investigation**, when the situation warrants it:
+  snow/weather context (NWS `api.weather.gov`, keyless), nearby special-event
+  context, extra detail on an unusual closure, and
+  `find_legal_parking_nearby()` when the user asks where to move
+* **prioritization, urgency framing, explanation**
+* **daily email composition** and other soft/contextual communication
+  (daily summaries, heads-ups, non-safety-critical warnings)
+
+Agent-gathered evidence enters the same typed evidence store. A deterministic
+trigger can promote an optional category to *required* (e.g. interval in
+Dec 1–Apr 1 ⇒ snow route required); if the agent then hasn't supplied it, the
+verdict is `UNKNOWN`. The rule engine remains the only component that outputs a
+status.
+
+## Pipeline
+
+```
+ParkingRequest
+  → deterministic core: gather (always) → completeness → evaluate_parking()
+                                        → ParkingDecision + hard alert flags
+  → agent investigation wing (optional): snow/weather, events, closure detail,
+                                         nearby alternatives  → more evidence
+                                         → (re-evaluate if a trigger promoted a category)
+  → agent communication wing: prioritize, explain, compose email/alerts
+  → API response  /  (Slice 4) scheduled monitor emails
+```
+
+## Proactive monitoring (Slice 4)
+
+A registered **watch** on a parked car. A daily **GitHub Actions scheduled
+workflow** re-runs the pipeline and sends: a morning status email, urgent alerts
+(deterministically triggered), and move reminders at **T‑3 days** and the
+**night before**.
+
+* **Persistence:** `watches.json` committed to the repo via the GitHub API.
+  **No PII in the repo** — stable anonymous `watch_id`s only. The
+  `watch_id → email / notification config` map is a GitHub Actions **secret**,
+  never committed.
+* **Email:** Gmail SMTP via an app-password secret (`smtplib`). ~500/day, $0.
+* **Scheduler:** GitHub Actions `schedule:` cron. Render Free has no cron.
+* Still **$0/month**, no database, no paid SaaS.
+
+## Revised slice order
+
+* **Slice 1** ✅ request → agent → MCP → real data → visible result
+* **Slice 2** ✅ deterministic completeness + rule engine; per-run evidence store
+* **Slice 3** (now) the inversion above + snow/weather + events + nearby-parking
+  + FastAPI `/analyze` rework + React structured-selector UI + result UI
+* **Slice 4** proactive monitoring subsystem (watches, scheduled run, email,
+  urgent alerts, reminders)
+* **Slice 5** generated Chicago-wide block registry + more datasets + deploy +
+  polish
+
+---
+
 # 1. PRIMARY PROJECT GOAL
 
 The PRIMARY purpose of this project is for me to gain practical experience with:
@@ -632,6 +713,12 @@ Avoid unnecessary fields until a supported rule actually requires them.
 THE LLM MUST NOT DECIDE PARKING LEGALITY.
 
 This is non-negotiable.
+
+> **Revised by section 0.** Since 2026-09-01 the deterministic core also runs the
+> required evidence gather and the hard urgent-alert triggers with no agent
+> involvement — the agent can no longer skip a safety check. The diagram below
+> still holds for *what decides legality*; see section 0 and
+> `docs/architecture.md` for the current division of labor.
 
 The architecture is:
 
@@ -2090,6 +2177,11 @@ Highlight:
 # 55. VERTICAL-SLICE DEVELOPMENT ORDER
 
 Do NOT build everything before anything works.
+
+> **Superseded by section 0's "Revised slice order".** Slices 1–2 are done.
+> Slice 3 now also carries the agent-role inversion, snow/weather, events, and
+> nearby-parking; Slice 4 is the proactive monitoring subsystem. The original
+> slices below are kept for context.
 
 ## VERTICAL SLICE 1 — FIRST PRIORITY
 

@@ -94,15 +94,64 @@ occasional garbage dates (year 2105+) which we reject.
 
 ---
 
+### Snow Route Parking Restrictions — 2-inch snow routes
+
+| | |
+|---|---|
+| Dataset ID | `i6k4-giaj` |
+| Endpoint | `https://data.cityofchicago.org/resource/i6k4-giaj.json` |
+| Format | JSON (SODA); `the_geom` MultiLineString + `on_street` / `from_stree` / `to_street` |
+| Client | `app/services/snow_routes.py` |
+| MCP tool | `get_snow_route_status` |
+
+144 arterial stretches where on-street parking is banned once **2+ inches** of
+snow has accumulated. All rows are `restrict_t = "2 INCH"`. We match a block by
+`on_street` (normalized street name + direction); the from/to granularity is
+coarser than our blocks so a street-name match flags the block.
+
+How the rule engine uses it: a bare route match is **advisory** (the ban only
+bites with snow). It becomes a `blocks` / `limits` verdict only when the agent's
+weather evidence (below) confirms ≥2″ accumulation overlapping the interval.
+
+Known limitation: the separate **Dec 1 – Apr 1, 2–7 AM overnight ban** (~107 mi,
+regardless of snow) applies to a *different, larger* arterial list for which we
+have not confirmed a clean machine-readable source. `gather.py` applies the
+**calendar** deterministically (interval in that window ⇒ `snow_route` becomes a
+required category) but cannot yet assert the ban for a specific block. Tracked
+for Slice 5.
+
+### National Weather Service — snow forecast / observations
+
+| | |
+|---|---|
+| Source | `https://api.weather.gov` (US NWS) — free, **no API key**, requires a `User-Agent` |
+| Client | `app/services/weather.py` |
+| Used by | the agent's investigation wing (not the deterministic core) |
+
+Points → gridpoint forecast for the block's lat/lon; we read snowfall amount and
+probability over the requested interval. This is a **forecast**, so it feeds the
+agent's risk narrative and (only when it confirms ≥2″ on a 2-inch route) the
+snow_route verdict. NWS outages ⇒ the agent reports the snow risk as unverified.
+
+### Special events
+
+Event permits with real parking impact (Block Party, Festival, Athletic, Parade,
+Filming, …) are **already in the deterministic core** via the transportation-
+permits dataset `rzy5-8tax` — those rows carry a `Full` / `Curblane` closure and
+match like any other closure. The agent's "nearby event" role is *contextual*
+(congestion, crowds, "the festival is that weekend"), drawing on the same
+dataset or **Special Events Permits** (`dm95-f8w5`), and never changes legality.
+
+---
+
 ## Researched, not yet integrated
 
 | Purpose | Dataset | ID | Notes |
 |---|---|---|---|
 | Chicago municipal boundary | City Boundary | `qqq8-j68g` | Single multipolygon; used to bound the generated registry. |
 | Street centerlines | Transportation - Street Center Lines | `6imu-meau` | Segment geometry + address ranges + cross-street names; basis for the generated block registry (Slice 5). |
-| Snow / winter overnight parking ban routes | Winter Overnight Parking Ban | *(TBD)* | 2 AM–7 AM ban Dec 1–Apr 1 on ~107 mi regardless of snow, plus 2-inch routes. Needs verification of a machine-readable source. |
+| Winter overnight parking ban route list | *(map only so far: `nnn9-yqby`, `2cwz-8e8x`)* | — | The Dec 1–Apr 1 2–7 AM ban arterials. Need a tabular/geometry source. |
 | Parking meters / paid zones | *(TBD — CDOT / concessionaire)* | *(TBD)* | No clean authoritative open dataset confirmed yet; may remain UNSUPPORTED. |
-| Temporary "no parking" (moving, film, events) | *(TBD)* | *(TBD)* | Often issued as paper permits; open-data coverage uncertain. |
 
 If no reliable official dataset exists for a category, the corresponding MCP
 tool returns `UNSUPPORTED` and the rule engine keeps the answer `UNKNOWN` — we do

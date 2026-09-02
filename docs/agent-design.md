@@ -1,79 +1,83 @@
 # Agent Design
 
-## What Claude controls
+Since the 2026-09-01 revision the agent is **not** in the legality path. The
+deterministic core (`app/rules/`) gathers required evidence, checks completeness,
+and produces the `ParkingDecision` before the agent runs at all. The agent is
+two optional wings around that result.
 
-- **Tool selection** — which MCP tools to call for a given request.
-- **Tool sequence** — the order (e.g. context first, then restriction lookups).
-- **Tool arguments** — built from the canonical `ParkingRequest` fields.
-- **Evidence organization** and the **plain-language explanation** of the final
-  decision.
+## What the agent controls
 
-## What Claude does NOT control
+**Investigation wing** — decides whether the situation is worth extra digging,
+and does it:
 
-- **Parking legality** — decided only by `evaluate_parking()`.
-- **Evidence content** — each MCP evidence tool fetches and stores its own
-  authoritative output in `app.evidence_store` under the run's `run_id`. The
-  agent never assembles, edits, or relays evidence; `evaluate_parking_request`
-  reads it straight from the store.
-- **Rule interpretation** outside of what a tool result literally says.
+| Trigger the agent reasons about | Tool it reaches for |
+|---|---|
+| interval is in winter / snow is plausible | `get_snow_route_status`, `get_weather_outlook` (NWS) |
+| a big venue / event area is near the block | `get_nearby_events` |
+| a temporary-closure result looks odd or severe | `get_closure_detail` |
+| the user asks where they could move instead | `find_legal_parking_nearby` |
+
+New evidence is written to `app.evidence_store` under the run's `run_id`. If a
+**deterministic** trigger promoted a category to required (e.g. the interval
+overlaps Dec 1–Apr 1 ⇒ `snow_route` required) and the agent supplied it, the
+pipeline re-evaluates.
+
+**Communication wing** — prioritizes, judges urgency, and writes:
+the grounded explanation, the daily monitoring email, alert copy, and
+contextual recommendations ("street cleaning is also due two days later").
+
+## What the agent does NOT control
+
+- **Whether a safety check runs.** The core gather is unconditional.
+- **Legality** — `status`, `move_by` — decided only by `evaluate_parking()`.
+- **Whether a hard urgent alert fires.** If a verified restriction requires the
+  car to move within the urgent window, deterministic code sets the flag. The
+  agent decides how to prioritize and word it, not whether to send it.
+- **Evidence content** — every evidence object is produced by a data client and
+  stored by application code; the agent never assembles or edits evidence.
+- **Dates / weekdays / time zones** — the decision carries
+  `start_time_display`, `end_time_display`, `move_by_display` (America/Chicago).
+  The agent restates them; it must not compute or convert a time.
 - **Missing-data assumptions** — `UNAVAILABLE` / `UNSUPPORTED` / not-gathered
-  stays unverified; it never becomes "you can park".
-- **Overriding the evaluator** — the agent receives a finished `ParkingDecision`
-  and may not change its `status` or `move_by`.
-- **Dates and times** — the decision carries `start_time_display`,
-  `end_time_display`, `move_by_display` (America/Chicago). The agent restates
-  those strings; it must not compute a weekday or convert a time.
+  stays unverified and never becomes "you can park".
 
 ## Runtime & auth
 
-Claude Agent SDK (`claude-agent-sdk`), model `claude-sonnet-4-5`. The SDK shells
-out to the local **Claude Code CLI**, which carries the Claude Pro subscription
-credentials — we do not set `ANTHROPIC_API_KEY`. CLI discovery:
-`app/config.py:resolve_claude_cli()`.
+Claude Agent SDK (`claude-agent-sdk`), model `claude-sonnet-4-5`, authenticated
+through the local Claude Code CLI (subscription, no `ANTHROPIC_API_KEY`). CLI
+discovery: `app/config.py:resolve_claude_cli()`.
 
-## Tool lockdown
+## Orchestration & lockdown
 
-`app/agent/parking_agent.py` builds `ClaudeAgentOptions` with:
+`app/agent/parking_agent.py`:
 
-- `setting_sources=[]` — the agent does **not** inherit this repo's `CLAUDE.md`
-  or settings.
-- `can_use_tool` callback — allows **only** `mcp__chicago-parking__*`; everything
-  else is denied.
-- `disallowed_tools` — belt-and-braces block of `Bash`, `Edit`, `Write`, `Read`,
-  `WebFetch`, `Task`, `ToolSearch`, etc.
-- MCP server registered as a stdio subprocess (`python -m app.mcp.server`).
+1. run the deterministic core → `ParkingDecision` + evidence + hard-alert flags
+2. hand that to the agent as context, with a fresh `run_id`
+3. the agent investigates (optional) and composes the explanation
+4. capture every tool call (name, args, result, latency, order) for the trace
+
+`ClaudeAgentOptions`: `setting_sources=[]` (no repo `CLAUDE.md`), a `can_use_tool`
+callback that allows **only** `mcp__chicago-parking__*`, `disallowed_tools` for
+the built-ins, MCP server as a stdio subprocess.
 
 ## Instructions
 
-Version-controlled in `app/agent/instructions.py` as `SYSTEM_PROMPT_V1`. Wording
-may be tuned; the hard rules (no legality from memory, no invented regulations,
-use the supplied `location_id`, don't alter times, missing data ≠ permission,
-never state a verdict) are load-bearing. Prompt experiments (Master Build Plan
-sec. 40) keep V1 as the baseline.
-
-## Tracing
-
-Every run captures, per tool call: order, name, arguments, result, error flag,
-latency. `format_trace()` renders it; `AgentRunResult.evidence` holds the
-normalized evidence bundle passed to the rule engine.
+Version-controlled in `app/agent/instructions.py` as `SYSTEM_PROMPT_V2`. The hard
+constraints (no legality from memory, no invented rules, use the supplied
+`location_id` and times, missing data ≠ permission, never state or change a
+verdict, no date math) are load-bearing. Prompt experiments keep V2 as the
+baseline.
 
 ## Concepts (for the learning goal)
 
-- **Why this is an agent**: Claude is given a goal and a toolbox and decides the
-  steps — which tools, what arguments, in what order — rather than following a
-  fixed script.
-- **How tool selection works**: Claude sees each tool's *name* and *description*
-  (not its code). Strong descriptions that say *when* to use a tool drive good
-  selection; that is why our descriptions include trigger conditions.
-- **How arguments travel**: Claude emits a `tool_use` block with a JSON input →
-  the SDK routes it over stdio JSON-RPC to our MCP server → the Python function
-  runs → the return value comes back as a `tool_result` block Claude then reads.
-- **Why `run_id`**: the orchestrator (`run_parking_agent`) mints a `run_id` and
-  puts it in the prompt; the agent passes it to every tool. Evidence tools store
-  their output under it; `evaluate_parking_request` reads that run's evidence.
-  This makes the agent's orchestration operationally meaningful (the verdict
-  uses the evidence *it* gathered) while keeping the evidence itself out of the
-  model's hands.
-- **Where AI ends**: once evidence is stored, deterministic Python decides
-  legality and formats every date. Probabilistic model → deterministic software
-  is the safety line.
+- **Why this is still an agent**: it is given a goal (assess + communicate a
+  parking situation) and a toolbox, and it decides *whether and what* to
+  investigate and *how* to communicate — genuine judgment, just not over
+  legality.
+- **Deterministic vs. probabilistic boundary**: the required checks, the
+  verdict, the move-by time, and the hard urgent-alert trigger are all pure
+  Python. The agent's freedom lives strictly outside that boundary.
+- **Why `run_id`**: the orchestrator mints it; every tool call carries it;
+  optional evidence the agent gathers is stored under it and merged into the
+  next evaluation. The agent's investigation is operationally real without the
+  evidence passing through the model.
