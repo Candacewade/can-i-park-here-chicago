@@ -1,6 +1,20 @@
 from __future__ import annotations
 
+import pytest
+
 from app.services.socrata import SocrataError
+
+
+@pytest.fixture(autouse=True)
+def _isolate_blocks_registry(tmp_path, monkeypatch):
+    """Keep the test suite from writing to the real backend/app/locations/blocks.json."""
+    from app.json_store import FileJsonStore
+    from app.locations import registry
+
+    monkeypatch.setattr(registry, "_blocks_store", lambda: FileJsonStore(tmp_path / "blocks.json"))
+    registry.reset_cache()
+    yield
+    registry.reset_cache()
 
 
 class FakeSocrataClient:

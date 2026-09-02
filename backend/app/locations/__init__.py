@@ -1,4 +1,4 @@
-"""Canonical Chicago parking-location registry."""
+"""Canonical Chicago parking-location registry + address resolution."""
 
 from app.locations.registry import (
     ChicagoParkingLocation,
@@ -6,12 +6,17 @@ from app.locations.registry import (
     get_location,
     list_locations,
     registry_summary,
+    remember_location,
 )
+from app.locations.resolve import ResolvedLocation, resolve_address
 
 __all__ = [
     "ChicagoParkingLocation",
     "LocationNotFoundError",
+    "ResolvedLocation",
     "get_location",
     "list_locations",
     "registry_summary",
+    "remember_location",
+    "resolve_address",
 ]

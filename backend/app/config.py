@@ -36,6 +36,18 @@ DATASET_SNOW_ROUTES = "i6k4-giaj"         # Snow Route Parking Restrictions (2-i
 # endpoints -- see docs/data-sources.md.
 DATASET_EVENTS = DATASET_STREET_CLOSURES
 
+# Slice 5 -- address / location resolution
+DATASET_STREET_CENTERLINES = "pr57-gg9e"  # Chicago Street Center Lines
+DATASET_STREET_SWEEPING_ZONES = "2r7q-emq3"  # Street Sweeping Zones 2026 (geometry + schedule)
+DATASET_CITY_BOUNDARY = "qqq8-j68g"       # City Boundary (in-Chicago gate)
+DATASET_COMMUNITY_AREAS = "igwz-8jzy"     # Community Areas (neighborhood, display only)
+
+# US Census Bureau geocoder -- free, no key, official TIGER/Line.
+CENSUS_GEOCODER_BASE = os.environ.get(
+    "CENSUS_GEOCODER_BASE", "https://geocoding.geo.census.gov/geocoder"
+)
+CENSUS_BENCHMARK = os.environ.get("CENSUS_BENCHMARK", "Public_AR_Current")
+
 # National Weather Service (free, keyless, but requires a descriptive User-Agent).
 NWS_API_BASE = os.environ.get("NWS_API_BASE", "https://api.weather.gov")
 NWS_USER_AGENT = os.environ.get(
@@ -95,6 +107,10 @@ def resolve_claude_cli() -> str | None:
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 LOCATIONS_FIXTURE_PATH = BACKEND_ROOT / "app" / "locations" / "fixtures.json"
+# Self-populating resolved-block registry (grows as addresses are looked up).
+BLOCKS_FILE = Path(
+    os.environ.get("BLOCKS_FILE", str(BACKEND_ROOT / "app" / "locations" / "blocks.json"))
+)
 
 # --- Proactive monitoring (Slice 4) ----------------------------------
 
@@ -115,6 +131,8 @@ GH_WATCHES_REPO = os.environ.get("GH_WATCHES_REPO") or None      # "owner/repo"
 GH_WATCHES_TOKEN = os.environ.get("GH_WATCHES_TOKEN") or None
 GH_WATCHES_BRANCH = os.environ.get("GH_WATCHES_BRANCH", "main")
 GH_WATCHES_PATH = os.environ.get("GH_WATCHES_PATH", "backend/watches.json")
+# The blocks.json location cache uses the same repo/token (a different path).
+GH_BLOCKS_PATH = os.environ.get("GH_BLOCKS_PATH", "backend/app/locations/blocks.json")
 
 # Email (Gmail SMTP via an app password). No secret -> emails are written to
 # OUTBOX_DIR instead of sent.

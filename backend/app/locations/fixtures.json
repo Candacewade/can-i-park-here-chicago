@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "description": "Development location fixtures (Master Build Plan sec. 11). A small set of REAL Chicago blocks used to prove the vertical slice. Streets, address ranges and wards are real; residential permit-zone data is matched live against the City portal and is real. Cross-street names, coordinates, and the block->street-sweeping-section assignment are approximate placeholders (each section number does exist in the 2026 sweeping dataset). Vertical Slice 5 replaces this hand-written file with a registry generated from official street-centerline + boundary + sweeping-section geometry.",
+    "description": "Test-only location fixtures. Since Slice 5 real locations come from address resolution (app/locations/resolve.py) into the self-populating blocks.json; these hand-written entries are kept only so the test suite and offline demos have stable location_ids. Cross-streets/coords/sections here are approximate placeholders.",
     "coverage_area": "City of Chicago municipal boundary (conceptually the area Google Maps outlines as Chicago).",
     "generated": false
   },
