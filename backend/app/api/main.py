@@ -51,6 +51,7 @@ from app.monitor import notify
 from app.monitor.models import Watch, WatchStatus
 from app.monitor.run import run_monitor
 from app.monitor.store import get_store
+from app.rules.engine import _display as _display_ct  # America/Chicago long-form label
 
 app = FastAPI(title="Can I Park Here? — Chicago", version="0.4.0")
 
@@ -186,6 +187,10 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
 # --- watches / monitoring (Slice 4) ---------------------------------
 
 def _watch_view(w: Watch) -> WatchView:
+    try:
+        summary = get_location(w.location_id).human_summary()
+    except Exception:
+        summary = None
     return WatchView(
         watch_id=w.watch_id,
         location_id=w.location_id,
@@ -197,6 +202,8 @@ def _watch_view(w: Watch) -> WatchView:
         last_decision=w.last_decision,
         last_checked_at=w.last_checked_at,
         notified_count=len(w.notified),
+        location_summary=summary,
+        through_display=_display_ct(w.end_time),
     )
 
 

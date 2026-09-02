@@ -178,6 +178,10 @@ class WatchView(BaseModel):
     last_decision: str | None
     last_checked_at: datetime | None
     notified_count: int
+    # Display helpers so a client with only {watch_id, token} (e.g. an email
+    # "change parking spot" link on a fresh device) can render the monitor card.
+    location_summary: str | None = None
+    through_display: str | None = None
 
 
 class MonitorRunResponse(BaseModel):

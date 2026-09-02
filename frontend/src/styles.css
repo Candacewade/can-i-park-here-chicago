@@ -110,6 +110,17 @@ footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
 
 /* email monitoring */
 .banner { background: #eef4fd; border-color: #cfe0f7; font-size: 13px; }
+.banner .link { margin-left: 8px; }
+
+.monitor-banner {
+  display: flex; justify-content: space-between; gap: 16px; align-items: center;
+  flex-wrap: wrap; border-color: var(--accent); background: #f4f9ff;
+}
+.mb-main { min-width: 220px; }
+.mb-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.mb-loc { font-weight: 600; font-size: 14px; }
+.monitor-banner .note { margin: 2px 0; }
+.mb-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .card.monitor h3 { font-size: 15px; margin: 0 0 10px; }
 .card.monitor.active { border-color: var(--accent); }
 .card.monitor p { margin: 4px 0; font-size: 14px; }

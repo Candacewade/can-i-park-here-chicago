@@ -89,6 +89,21 @@ export interface MonitorState {
   throughDisplay?: string;
 }
 
+export interface WatchView {
+  watch_id: string;
+  location_id: string;
+  start_time: string;
+  end_time: string;
+  permit_zone: string | null;
+  status: string;
+  created_at: string;
+  last_decision: string | null;
+  last_checked_at: string | null;
+  notified_count: number;
+  location_summary: string | null;
+  through_display: string | null;
+}
+
 export interface AddressInput {
   number: string;
   street: string;

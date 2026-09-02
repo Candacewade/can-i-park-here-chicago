@@ -151,7 +151,7 @@ URL-encoded.
 ```
 POST   /api/watches                    { location_id, start_time, end_time, permit_zone, email }
                                        -> { watch_id, manage_token, email_registered, note }
-GET    /api/watches/{id}?token=...     state only — no email echoed back; token-gated
+GET    /api/watches/{id}?token=...     state + location_summary + through_display (no email); token-gated
 DELETE /api/watches/{id}?token=...     stop this watch -> status: resolved; token-gated
 GET    /api/watches/{id}/unsubscribe?token=...   the link in every email -> confirmation page ONLY (no mutation)
 POST   /api/watches/{id}/unsubscribe?token=...   the page's "Stop monitoring" button -> resolve + drop email
@@ -197,15 +197,31 @@ client; `APP_BASE_URL` falls back to the first non-localhost `FRONTEND_ORIGINS`.
 
 ### Frontend
 
-`frontend/src/components/MonitorPanel.tsx` — after a parking result, a
-**🔔 Monitor this parking spot** CTA → email field → `POST /api/watches`. The
-`{watch_id, manage_token, email}` triple is kept in `localStorage`
-(`ciph_monitor`) — no account. An **active** panel then shows the recipient,
-block and through-date with **Change parking spot** / **Stop monitoring**.
-"Change" clears the address form; after the user resolves + checks a new block a
-**Confirm move** button calls `replace`. The email "change parking spot" link
-deep-links back as `/?manage=<id>&token=<token>` (params are stripped from the
-URL bar on load).
+`frontend/src/monitor.ts` owns persistence — `{watchId, token, email,
+locationSummary, throughDisplay}` in `localStorage` (`ciph_monitor`), no account.
+
+**Startup precedence** (`resolveStartupMonitor`): an explicit
+`/?manage=<id>&token=<token>` email link identifies the watch the user wants to
+manage *right now* and **wins over `localStorage`** — it is verified with
+`GET /api/watches/{id}?token=…` before being adopted. If that watch is `active`
+it replaces the stored monitor and the params are stripped from the URL; if it is
+`resolved`/`expired` the app shows an inactive notice and **leaves the stored
+watch untouched**; a `404` / bad-token link shows a small error and likewise
+never clobbers a valid stored watch. With no link, `loadStoredMonitor()` restores
+the stored active watch (refresh / new tab / return visit).
+
+- **`MonitorBanner.tsx`** — a persistent card at the top of the home view
+  whenever a monitor is active, *before and regardless of* any parking check:
+  `🔔 Monitoring active` + block + through-date + **Change parking spot** /
+  **Stop monitoring**. When the stored monitor lacks display fields (an email
+  link on a fresh device), `App` hydrates them from
+  `GET /api/watches/{id}?token=…` (`location_summary`, `through_display`); a
+  `404` / non-`active` status ⇒ the stale localStorage entry is dropped.
+- **`MonitorPanel.tsx`** — the result-tied card: **🔔 Monitor this parking
+  spot** → email → `POST /api/watches` when there's no monitor; **Confirm move**
+  → `POST …/replace` when "Change parking spot" has sent the user back through
+  address → side → time → check. The **old watch stays active until the move is
+  confirmed**.
 
 ## Production flows
 

@@ -1,6 +1,7 @@
 name: CI
 
-# Fast suite only: lint + unit tests + a frontend typecheck/build. Agent
+# Fast suite only: lint + unit tests (backend pytest, frontend vitest) + a
+# frontend typecheck/build. Agent
 # evaluations (which consume Claude subscription usage) run manually -- see
 # docs/evaluations.md.
 on:
@@ -38,4 +39,5 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test
       - run: npm run build

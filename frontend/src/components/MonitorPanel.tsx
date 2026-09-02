@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createWatch, replaceWatch, stopWatch } from "../api";
+import { createWatch, replaceWatch } from "../api";
 import type { MonitorState, WhenInput } from "../types";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -12,10 +12,13 @@ interface Props {
   monitor: MonitorState | null;
   changing: boolean;
   onChange: (m: MonitorState | null) => void;
-  onStartChanging: () => void;
   onCancelChanging: () => void;
 }
 
+/** Right-column card for the two actions tied to a parking result:
+ *   - no monitor yet  -> subscribe (email -> POST /api/watches)
+ *   - monitor + changing -> confirm the move to the just-checked spot
+ *  The always-visible "Monitoring active" card lives in <MonitorBanner>. */
 export function MonitorPanel({
   locationId,
   blockSummary,
@@ -24,7 +27,6 @@ export function MonitorPanel({
   monitor,
   changing,
   onChange,
-  onStartChanging,
   onCancelChanging,
 }: Props) {
   const [phase, setPhase] = useState<"idle" | "form" | "working">("idle");
@@ -65,20 +67,6 @@ export function MonitorPanel({
     }
   };
 
-  const stop = async () => {
-    if (!monitor) return;
-    setErr(null);
-    setPhase("working");
-    try {
-      await stopWatch(monitor.watchId, monitor.token);
-      onChange(null);
-      setPhase("idle");
-      setNotice("✅ Parking monitoring has been turned off.");
-    } catch (e) {
-      fail(e);
-    }
-  };
-
   const confirmMove = async () => {
     if (!monitor || !locationId) return;
     setErr(null);
@@ -98,87 +86,40 @@ export function MonitorPanel({
       });
       onCancelChanging();
       setPhase("idle");
-      setNotice("✅ Monitoring updated. We'll now watch your new parking location.");
     } catch (e) {
       fail(e);
     }
   };
 
-  // --- changing an existing monitor's spot --------------------------
+  // --- confirm moving an existing monitor to the checked spot -------
   if (monitor && changing) {
     return (
       <div className="card monitor">
-        <h3>🔁 Change the spot you're monitoring</h3>
+        <h3>🔁 Move your monitoring here?</h3>
         {err && <p className="mon-err">{err}</p>}
-        {locationId ? (
-          <>
-            <p>New spot:</p>
-            <p className="mon-loc">{blockSummary}</p>
-            {throughDisplay && <p className="note">Through {throughDisplay}</p>}
-            <p className="note">
-              Confirming resolves your current watch and starts a fresh one here. The
-              old location stops emailing you immediately.
-            </p>
-            <div className="mon-actions">
-              <button className="primary" disabled={phase === "working"} onClick={confirmMove}>
-                {phase === "working" ? "Updating…" : "Confirm move"}
-              </button>
-              <button className="link" onClick={onCancelChanging}>
-                Cancel
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="note">
-              Enter your new address above and run the parking check, then come back
-              here to confirm the move.
-            </p>
-            <button className="link" onClick={onCancelChanging}>
-              Cancel
-            </button>
-          </>
-        )}
-      </div>
-    );
-  }
-
-  // --- monitoring active -------------------------------------------
-  if (monitor) {
-    return (
-      <div className="card monitor active">
-        <h3>🔔 Monitoring active</h3>
-        {notice && <p className="mon-ok">{notice}</p>}
-        {err && <p className="mon-err">{err}</p>}
-        {monitor.email && (
-          <p>
-            We'll email: <strong>{monitor.email}</strong>
-          </p>
-        )}
-        {monitor.locationSummary && (
-          <>
-            <p className="note">Monitoring</p>
-            <p className="mon-loc">{monitor.locationSummary}</p>
-          </>
-        )}
-        {monitor.throughDisplay && <p className="note">Through {monitor.throughDisplay}</p>}
+        <p>New spot:</p>
+        <p className="mon-loc">{blockSummary}</p>
+        {throughDisplay && <p className="note">Through {throughDisplay}</p>}
+        <p className="note">
+          Your current watch stays active until you confirm. Confirming resolves it
+          and starts a fresh one here — the old location stops emailing you
+          immediately.
+        </p>
         <div className="mon-actions">
-          <button
-            className="secondary"
-            disabled={phase === "working"}
-            onClick={onStartChanging}
-          >
-            Change parking spot
+          <button className="primary" disabled={phase === "working"} onClick={confirmMove}>
+            {phase === "working" ? "Updating…" : "Confirm move"}
           </button>
-          <button className="link danger" disabled={phase === "working"} onClick={stop}>
-            {phase === "working" ? "Working…" : "Stop monitoring"}
+          <button className="link" onClick={onCancelChanging}>
+            Keep the current spot
           </button>
         </div>
       </div>
     );
   }
 
-  // --- not monitoring yet -----------------------------------------
+  if (monitor) return null; // active card is the banner; nothing extra here
+
+  // --- not monitoring yet: subscribe -----------------------------
   return (
     <div className="card monitor">
       {notice ? (
@@ -202,7 +143,7 @@ export function MonitorPanel({
           </label>
           {err && <p className="mon-err">{err}</p>}
           <div className="mon-actions">
-            <button className="primary" disabled={phase !== "form" && phase !== "idle"} onClick={start}>
+            <button className="primary" disabled={phase !== "form"} onClick={start}>
               Start monitoring
             </button>
             <button

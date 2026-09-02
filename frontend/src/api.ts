@@ -5,6 +5,7 @@ import type {
   ExampleAddress,
   ReplaceWatchResponse,
   ResolveResponse,
+  WatchView,
   WhenInput,
 } from "./types";
 
@@ -75,6 +76,12 @@ export function createWatch(input: {
       ...whenTimes(input.when),
     }),
   }).then((r) => json<CreateWatchResponse>(r));
+}
+
+export function getWatch(watchId: string, token: string): Promise<WatchView> {
+  return fetch(
+    `${BASE}/api/watches/${encodeURIComponent(watchId)}?token=${encodeURIComponent(token)}`,
+  ).then((r) => json<WatchView>(r));
 }
 
 export function stopWatch(watchId: string, token: string): Promise<unknown> {

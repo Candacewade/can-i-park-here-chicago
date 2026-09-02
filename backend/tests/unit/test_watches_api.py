@@ -87,6 +87,10 @@ def test_get_and_delete_require_the_token(_mem):
     assert g.status_code == 200
     assert "email" not in g.json()
     assert g.json()["status"] == "active"
+    # display helpers let a fresh device (email link, empty localStorage) render
+    # the monitor card without another parking search
+    assert g.json()["through_display"]
+    assert "location_summary" in g.json()
 
     assert client.delete(f"/api/watches/{wid}?token=wrong").status_code == 404
     d = client.delete(f"/api/watches/{wid}?token={tok}")
@@ -96,6 +100,15 @@ def test_get_and_delete_require_the_token(_mem):
 
 def test_get_missing_watch_404(_mem):
     assert client.get("/api/watches/wch_nope?token=x").status_code == 404
+
+
+def test_get_resolved_watch_still_readable_so_client_can_clear(_mem):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    client.delete(f"/api/watches/{wid}?token={tok}")
+    g = client.get(f"/api/watches/{wid}?token={tok}")
+    assert g.status_code == 200
+    assert g.json()["status"] == "resolved"   # frontend sees this -> drops localStorage
 
 
 # --- unsubscribe: GET shows a page, POST does the work --------------

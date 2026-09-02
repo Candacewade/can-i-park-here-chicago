@@ -1,10 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
-import { analyze, fetchExamples, resolveAddress } from "./api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { analyze, fetchExamples, getWatch, resolveAddress } from "./api";
 import { AddressForm } from "./components/AddressForm";
 import { AgentInspector } from "./components/AgentInspector";
 import { BlockConfirm } from "./components/BlockConfirm";
+import { MonitorBanner } from "./components/MonitorBanner";
 import { MonitorPanel } from "./components/MonitorPanel";
 import { ResultCard } from "./components/ResultCard";
+import type { LinkStatus } from "./monitor";
+import {
+  loadStoredMonitor,
+  needsHydration,
+  readManageLink,
+  resolveStartupMonitor,
+  saveMonitor,
+} from "./monitor";
 import type {
   AddressInput,
   AnalyzeResponse,
@@ -14,8 +23,6 @@ import type {
   WhenInput,
 } from "./types";
 import "./styles.css";
-
-const MONITOR_KEY = "ciph_monitor";
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -33,34 +40,6 @@ function defaultWhen(): WhenInput {
   };
 }
 
-function loadMonitor(): MonitorState | null {
-  try {
-    const raw = localStorage.getItem(MONITOR_KEY);
-    if (raw) return JSON.parse(raw) as MonitorState;
-  } catch {
-    /* private mode / blocked storage -> just no persisted monitor */
-  }
-  // arrived from an email "change parking spot" link?
-  try {
-    const q = new URLSearchParams(window.location.search);
-    const watchId = q.get("manage");
-    const token = q.get("token");
-    if (watchId && token) return { watchId, token };
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
-function saveMonitor(m: MonitorState | null) {
-  try {
-    if (m) localStorage.setItem(MONITOR_KEY, JSON.stringify(m));
-    else localStorage.removeItem(MONITOR_KEY);
-  } catch {
-    /* best effort */
-  }
-}
-
 export default function App() {
   const [examples, setExamples] = useState<ExampleAddress[]>([]);
   const [address, setAddress] = useState<AddressInput>({ number: "", street: "", zip: "" });
@@ -73,31 +52,64 @@ export default function App() {
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
 
-  const [monitor, setMonitor] = useState<MonitorState | null>(() => loadMonitor());
-  const [changing, setChanging] = useState<boolean>(() => {
-    try {
-      return new URLSearchParams(window.location.search).has("manage");
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    fetchExamples().then(setExamples).catch(() => setExamples([]));
-    // clean the deep-link params out of the URL bar
-    try {
-      if (window.location.search) {
-        window.history.replaceState({}, "", window.location.pathname);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  // Startup precedence: an explicit ?manage=&token= email link identifies the
+  // watch to manage right now and wins over localStorage; otherwise restore the
+  // stored active watch. A bad link never destroys a valid stored watch.
+  const [monitor, setMonitor] = useState<MonitorState | null>(() => loadStoredMonitor());
+  const [changing, setChanging] = useState(false);
+  const [linkStatus, setLinkStatus] = useState<LinkStatus>(
+    () => (readManageLink() ? "loading" : "none"),
+  );
+  const hadLink = useRef(!!readManageLink());
 
   const updateMonitor = (m: MonitorState | null) => {
     setMonitor(m);
     saveMonitor(m);
   };
+
+  useEffect(() => {
+    fetchExamples().then(setExamples).catch(() => setExamples([]));
+  }, []);
+
+  // 1. A capability link wins over localStorage: verify it, then adopt or reject.
+  useEffect(() => {
+    if (!hadLink.current) return;
+    let cancelled = false;
+    resolveStartupMonitor(getWatch).then(({ monitor: m, linkStatus: s }) => {
+      if (cancelled) return;
+      setMonitor(m);
+      setLinkStatus(s);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 2. No link: hydrate a stored monitor that predates the display fields.
+  useEffect(() => {
+    if (hadLink.current || !needsHydration(monitor) || !monitor) return;
+    let cancelled = false;
+    getWatch(monitor.watchId, monitor.token)
+      .then((w) => {
+        if (cancelled) return;
+        if (w.status !== "active") {
+          updateMonitor(null);
+          return;
+        }
+        updateMonitor({
+          ...monitor,
+          locationSummary: w.location_summary ?? monitor.locationSummary,
+          throughDisplay: w.through_display ?? monitor.throughDisplay,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) updateMonitor(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monitor?.watchId, monitor?.token]);
 
   const locationId = useMemo(
     () => resolved?.side_options.find((o) => o.side === side)?.location_id ?? null,
@@ -151,7 +163,15 @@ export default function App() {
     }
   };
 
-  const showMonitor = (result || monitor) && !analyzing && !resolving;
+  const startChanging = () => {
+    setChanging(true);
+    setResolved(null);
+    setResult(null);
+    setErr(null);
+  };
+
+  const busy = resolving || analyzing;
+  const readyToConfirmMove = !!(monitor && changing && result && locationId && !busy);
 
   return (
     <div className="page">
@@ -163,10 +183,44 @@ export default function App() {
         </p>
       </header>
 
-      {monitor && changing && !resolved && (
+      {linkStatus === "loading" && (
+        <div className="card banner">Opening your parking monitor…</div>
+      )}
+      {linkStatus === "resolved" && (
         <div className="card banner">
-          You're changing your monitored parking spot. Enter the new address below,
-          run the check, then confirm the move.
+          🔕 That parking monitor has already been turned off — you won't get any more
+          emails for it.
+          <button className="link" onClick={() => setLinkStatus("none")}>
+            Dismiss
+          </button>
+        </div>
+      )}
+      {linkStatus === "invalid" && (
+        <div className="card banner">
+          ⚠️ That management link isn't valid — it may be old. Use the link in your most
+          recent parking email.
+          <button className="link" onClick={() => setLinkStatus("none")}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {monitor && !changing && linkStatus !== "loading" && (
+        <MonitorBanner
+          monitor={monitor}
+          onChange={updateMonitor}
+          onStartChanging={startChanging}
+        />
+      )}
+
+      {monitor && changing && !readyToConfirmMove && (
+        <div className="card banner">
+          <strong>Changing your monitored parking spot.</strong> Enter the new address
+          below and run the check — your current watch keeps running until you confirm
+          the move.
+          <button className="link" onClick={() => setChanging(false)}>
+            Cancel
+          </button>
         </div>
       )}
 
@@ -198,7 +252,7 @@ export default function App() {
         </div>
 
         <div>
-          {(resolving || analyzing) && (
+          {busy && (
             <div className="card working">
               <div className="spinner" />
               <p>
@@ -215,20 +269,15 @@ export default function App() {
               <AgentInspector result={result} />
             </>
           )}
-          {showMonitor && (
+          {result && !analyzing && (
             <MonitorPanel
               locationId={locationId}
               blockSummary={blockSummary}
-              throughDisplay={result?.end_time_display ?? null}
+              throughDisplay={result.end_time_display ?? null}
               when={when}
               monitor={monitor}
               changing={changing}
               onChange={updateMonitor}
-              onStartChanging={() => {
-                setChanging(true);
-                setResolved(null);
-                setResult(null);
-              }}
               onCancelChanging={() => setChanging(false)}
             />
           )}
