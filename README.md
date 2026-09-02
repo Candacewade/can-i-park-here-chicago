@@ -7,13 +7,15 @@ logic** rather than allowing the LLM to invent regulations, and (in progress)
 includes **agent evaluations** that test tool selection, missing-data handling,
 and hallucination prevention.
 
-> Status: **Slices 1–2 complete; Slice 3 in progress.** A deterministic core
-> (real City of Chicago Open Data → completeness check → rule engine) always
-> returns `LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN` + `move_by` on its own. The
-> Claude agent wraps that core with optional **investigation** (snow/weather,
-> nearby events, alternatives) and **communication** (prioritization, plain-
-> language explanation, and — Slice 4 — a daily monitoring email). The agent
-> never decides legality or whether an urgent alert fires. See
+> Status: **Slice 3 complete.** A deterministic core (real City of Chicago Open
+> Data → completeness check → rule engine) always returns
+> `LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN` + `move_by` + a hard urgent-alert
+> flag on its own. The Claude agent wraps that core with optional
+> **investigation** (snow/weather via NWS, nearby events, unusual closures,
+> `find_legal_parking_nearby`) and **communication** (prioritization, plain-
+> language explanation). A FastAPI `/api/parking/analyze` endpoint and a React
+> structured-selector UI drive the whole flow, with an agent-run inspector.
+> Slice 4 adds the daily monitoring email. See
 > [docs/architecture.md](docs/architecture.md).
 
 ## What's interesting here
@@ -39,18 +41,20 @@ and hallucination prevention.
 python -m venv .venv && source .venv/bin/activate
 pip install -e "backend[dev]"
 
-# You need the Claude Code CLI available (it carries your subscription auth).
+# CLI (you need the Claude Code CLI available — it carries your subscription auth)
 cd backend
 python -m app.cli --list
-python -m app.cli \
-  --location wrightwood-3300w-north \
-  --start 2026-09-08T19:00:00-05:00 \
-  --end   2026-09-09T11:00:00-05:00 \
-  --permit 100
+python -m app.cli --location belden-3900w-north \
+  --start 2026-09-20T19:00:00-05:00 --end 2026-09-21T09:00:00-05:00
+
+# Or the full stack:
+uvicorn app.api.main:app --port 8000          # backend
+cd ../frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
-You'll see the agent choose MCP tools, call them against live City data, and
-summarize the verified evidence.
+You'll see the deterministic core decide, the agent optionally investigate
+(snow, events, alternatives), and a grounded explanation — with every tool call
+visible in the agent-run inspector.
 
 ## Docs
 
@@ -67,6 +71,6 @@ summarize the verified evidence.
 |---|---|---|
 | 1 | `ParkingRequest` → agent → MCP → real data → visible result | ✅ |
 | 2 | deterministic completeness check + `evaluate_parking()`; per-run evidence store | ✅ |
-| 3 | agent-role inversion (deterministic core always runs) + snow/weather + events + nearby-parking + FastAPI `/analyze` + React UI | in progress |
+| 3 | agent-role inversion (deterministic core always runs) + snow/weather + events + nearby-parking + FastAPI `/analyze` + React UI | ✅ |
 | 4 | proactive monitoring: watches, daily email, deterministic urgent alerts, move reminders | |
 | 5 | generated Chicago-wide block registry + more datasets + deploy + polish | |
