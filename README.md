@@ -13,11 +13,13 @@ and hallucination prevention.
 > flag on its own. The Claude agent wraps that core with optional
 > **investigation** (snow/weather via NWS, nearby events, unusual closures,
 > `find_legal_parking_nearby`) and **communication** (prioritization, plain-
-> language explanation). A FastAPI backend + React structured-selector UI drive
-> the interactive flow; a **daily GitHub Actions monitor** re-checks registered
-> car-watches and emails a morning summary, deterministically-triggered urgent
-> alerts, and move reminders (T-3 days / night before). $0/month.
-> See [docs/architecture.md](docs/architecture.md) · [docs/monitoring.md](docs/monitoring.md).
+> language explanation). You enter an **exact Chicago address**; the backend
+> resolves it (US Census geocoder + official City geometry) to the canonical
+> block, side, sweeping ward/section, and every applicable dataset. A **daily +
+> hourly GitHub Actions monitor** re-checks registered car-watches and emails a
+> morning summary, deterministically-triggered urgent alerts, and move reminders.
+> $0/month.
+> See [docs/architecture.md](docs/architecture.md) · [docs/location-model.md](docs/location-model.md) · [docs/monitoring.md](docs/monitoring.md).
 
 ## What's interesting here
 
@@ -44,13 +46,9 @@ pip install -e "backend[dev]"
 
 # CLI (you need the Claude Code CLI available — it carries your subscription auth)
 cd backend
-python -m app.cli --list
-python -m app.cli --location belden-3900w-north \
-  --start 2026-09-20T19:00:00-05:00 --end 2026-09-21T09:00:00-05:00
-
-# Or the full stack:
-uvicorn app.api.main:app --port 8000          # backend
-cd ../frontend && npm install && npm run dev   # http://localhost:5173
+uvicorn app.api.main:app --port 8000            # backend
+cd ../frontend && npm install && npm run dev     # http://localhost:5173
+# then enter an address, e.g. 2400 N Clark St / 60614
 ```
 
 You'll see the deterministic core decide, the agent optionally investigate
@@ -63,6 +61,7 @@ visible in the agent-run inspector.
 - [docs/rule-engine.md](docs/rule-engine.md) — the deterministic verdict + urgent-alert pipeline
 - [docs/agent-design.md](docs/agent-design.md) — the agent's investigation + communication wings
 - [docs/data-sources.md](docs/data-sources.md) — every dataset, fields, limitations
+- [docs/location-model.md](docs/location-model.md) — address → canonical block + side
 - [docs/mcp-tools.md](docs/mcp-tools.md) · [docs/monitoring.md](docs/monitoring.md) · [docs/deployment.md](docs/deployment.md)
 - [docs/MASTER_BUILD_PLAN.md](docs/MASTER_BUILD_PLAN.md) — the full project plan (see §0 for the revision)
 
@@ -73,5 +72,5 @@ visible in the agent-run inspector.
 | 1 | `ParkingRequest` → agent → MCP → real data → visible result | ✅ |
 | 2 | deterministic completeness check + `evaluate_parking()`; per-run evidence store | ✅ |
 | 3 | agent-role inversion (deterministic core always runs) + snow/weather + events + nearby-parking + FastAPI `/analyze` + React UI | ✅ |
-| 4 | proactive monitoring: watches, daily email, deterministic urgent alerts, move reminders | ✅ |
-| 5 | generated Chicago-wide block registry + more datasets + deploy + polish | next |
+| 4 | proactive monitoring: watches, daily + hourly runs, deterministic urgent alerts, move reminders | ✅ |
+| 5 | exact-address location resolution (Census geocoder + City geometry) → any Chicago block | ✅ · deploy + polish next |
