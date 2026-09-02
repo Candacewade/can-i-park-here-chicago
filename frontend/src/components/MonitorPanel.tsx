@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createWatch, replaceWatch } from "../api";
 import type { MonitorState, WhenInput } from "../types";
+import { Icon } from "./Icon";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -96,8 +97,10 @@ export function MonitorPanel({
   // --- confirm moving an existing monitor to the checked spot -------
   if (monitor && changing) {
     return (
-      <section className="section monitor-cta" aria-label="Move your monitoring">
-        <h3>Move your monitoring here?</h3>
+      <div className="card monitor-cta" aria-label="Move your monitoring">
+        <h3>
+          <Icon name="route" size={17} /> Move your monitoring here?
+        </h3>
         <p className="mon-loc">{blockSummary}</p>
         {throughDisplay && <p className="note">Through {throughDisplay}</p>}
         <p className="note">
@@ -117,7 +120,7 @@ export function MonitorPanel({
             Keep the current spot
           </button>
         </div>
-      </section>
+      </div>
     );
   }
 
@@ -125,14 +128,16 @@ export function MonitorPanel({
 
   // --- not monitoring yet: subscribe -----------------------------
   return (
-    <section className="section monitor-cta" aria-label="Monitor this parking spot">
+    <div className="card monitor-cta" aria-label="Monitor this parking spot">
       {notice ? (
         <p className="mon-ok" role="status">
           {notice}
         </p>
       ) : phase === "form" ? (
         <>
-          <h3>🔔 Monitor this parking spot</h3>
+          <h3>
+            <Icon name="bell" size={17} /> Monitor this parking spot
+          </h3>
           <p className="note">
             We'll email you a morning status check and an urgent alert if you need to move
             your car. One click to stop any time.
@@ -180,13 +185,13 @@ export function MonitorPanel({
               setPhase("form");
             }}
           >
-            🔔 Monitor this parking spot
+            <Icon name="bell" size={16} /> Monitor this parking spot
           </button>
           <p className="note">
             Get a daily check and urgent move-your-car alerts by email. No account needed.
           </p>
         </>
       )}
-    </section>
+    </div>
   );
 }

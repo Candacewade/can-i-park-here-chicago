@@ -1,4 +1,5 @@
 import type { ResolveResponse, WhenInput } from "../types";
+import { Icon } from "./Icon";
 import { Step } from "./Step";
 
 interface Props {
@@ -43,7 +44,7 @@ export function BlockConfirm({
       }}
     >
       <button type="button" className="back" onClick={onBack}>
-        ‹ Use a different address
+        <span aria-hidden="true">‹</span> Use a different address
       </button>
 
       <p className="confirm-addr">{resolved.matched_address}</p>
@@ -139,6 +140,7 @@ export function BlockConfirm({
 
       <div className="section">
         <button className="primary" type="submit" disabled={busy}>
+          <Icon name="check" size={18} />
           {busy ? "Checking City data…" : "Check parking"}
         </button>
       </div>

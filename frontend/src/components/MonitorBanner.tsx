@@ -2,6 +2,7 @@ import { useState } from "react";
 import { extendWatch, stopWatch } from "../api";
 import { applyExtend, isLaterLocal } from "../monitor";
 import type { ExtendWatchResponse, MonitorState } from "../types";
+import { Icon } from "./Icon";
 
 interface Props {
   monitor: MonitorState;
@@ -68,24 +69,29 @@ export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen
 
   return (
     <div className="card monitor">
-      <span className="monitor-badge">🔔 Monitoring active</span>
-
-      {monitor.locationSummary && <p className="monitor-loc">{monitor.locationSummary}</p>}
-
-      <dl className="monitor-meta">
-        {monitor.throughDisplay && (
-          <>
-            <dt>Through</dt>
-            <dd>{monitor.throughDisplay}</dd>
-          </>
-        )}
-        {monitor.email && (
-          <>
-            <dt>Emailing</dt>
-            <dd className="muted">{monitor.email}</dd>
-          </>
-        )}
-      </dl>
+      <div className="monitor-top">
+        <span className="monitor-ic">
+          <Icon name="bell" size={24} />
+        </span>
+        <div className="monitor-body">
+          <span className="monitor-badge">Monitoring active</span>
+          {monitor.locationSummary && <p className="monitor-loc">{monitor.locationSummary}</p>}
+          <div className="monitor-meta">
+            {monitor.throughDisplay && (
+              <div>
+                <Icon name="calendar" size={15} className="mm-ic" />
+                Through {monitor.throughDisplay}
+              </div>
+            )}
+            {monitor.email && (
+              <div>
+                <Icon name="mail" size={15} className="mm-ic" />
+                <span className="muted">{monitor.email}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {done && (
         <div className="extend-done" role="status" aria-live="polite">
@@ -143,11 +149,12 @@ export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen
         </div>
       ) : (
         <div className="monitor-actions">
-          <button className="secondary" disabled={working} onClick={onStartChanging}>
+          <button className="pill blue" disabled={working} onClick={onStartChanging}>
+            <Icon name="route" size={16} />
             Change parking spot
           </button>
           <button
-            className="secondary"
+            className="pill violet"
             disabled={working || !monitor.endLocal}
             onClick={() => {
               setDone(null);
@@ -155,9 +162,11 @@ export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen
               setMode("extend");
             }}
           >
+            <Icon name="clock" size={16} />
             Extend parking time
           </button>
-          <button className="link danger stop" disabled={working} onClick={stop}>
+          <button className="pill red" disabled={working} onClick={stop}>
+            <Icon name="x" size={16} />
             {working ? "Stopping…" : "Stop monitoring"}
           </button>
         </div>

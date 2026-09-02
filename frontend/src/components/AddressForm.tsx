@@ -1,4 +1,5 @@
 import type { AddressInput, ExampleAddress } from "../types";
+import { Icon } from "./Icon";
 import { Step } from "./Step";
 
 interface Props {
@@ -59,8 +60,14 @@ export function AddressForm({ value, onChange, onSubmit, examples, busy }: Props
         </label>
 
         <button className="primary" type="submit" disabled={!ready || busy}>
+          <Icon name="search" size={18} />
           {busy ? "Looking up the block…" : "Find my block"}
         </button>
+
+        <p className="privacy-note">
+          <Icon name="shield" size={14} /> We never store your location — one-time lookups
+          only.
+        </p>
 
         {examples.length > 0 && (
           <p className="examples">

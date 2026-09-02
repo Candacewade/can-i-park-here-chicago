@@ -3,9 +3,13 @@ import { analyze, fetchExamples, getWatch, resolveAddress } from "./api";
 import { AddressForm } from "./components/AddressForm";
 import { AgentInspector } from "./components/AgentInspector";
 import { BlockConfirm } from "./components/BlockConfirm";
+import { Hero } from "./components/Hero";
+import { Icon } from "./components/Icon";
 import { MonitorBanner } from "./components/MonitorBanner";
 import { MonitorPanel } from "./components/MonitorPanel";
+import { Nav } from "./components/Nav";
 import { ResultCard } from "./components/ResultCard";
+import { SiteFooter } from "./components/SiteFooter";
 import type { LinkStatus } from "./monitor";
 import {
   loadStoredMonitor,
@@ -177,11 +181,9 @@ export default function App() {
   const readyToConfirmMove = !!(monitor && changing && result && locationId && !busy);
 
   return (
-    <div className="page">
-      <header>
-        <h1>Can I Park Here?</h1>
-        <p className="lede">Check Chicago street parking rules before you leave your car.</p>
-      </header>
+    <div className="shell">
+      <Nav />
+      <Hero />
 
       <div className="stack">
         {linkStatus === "loading" && (
@@ -231,74 +233,84 @@ export default function App() {
           </div>
         )}
 
-        {!resolved ? (
-          <AddressForm
-            value={address}
-            onChange={setAddress}
-            onSubmit={doResolve}
-            examples={examples}
-            busy={resolving}
-          />
-        ) : (
-          <BlockConfirm
-            resolved={resolved}
-            side={side}
-            onSide={setSide}
-            when={when}
-            onWhen={setWhen}
-            onSubmit={doAnalyze}
-            onBack={() => {
-              setResolved(null);
-              setResult(null);
-            }}
-            busy={analyzing}
-          />
-        )}
-
-        {busy && (
-          <div className="card working" role="status" aria-live="polite">
-            <div className="spinner" aria-hidden="true" />
-            <p>
-              {resolving
-                ? "Matching the address to a Chicago street segment…"
-                : "Checking City data — permit zones, street cleaning, closures, snow routes…"}
-            </p>
+        <div className="grid">
+          <div>
+            {!resolved ? (
+              <AddressForm
+                value={address}
+                onChange={setAddress}
+                onSubmit={doResolve}
+                examples={examples}
+                busy={resolving}
+              />
+            ) : (
+              <BlockConfirm
+                resolved={resolved}
+                side={side}
+                onSide={setSide}
+                when={when}
+                onWhen={setWhen}
+                onSubmit={doAnalyze}
+                onBack={() => {
+                  setResolved(null);
+                  setResult(null);
+                }}
+                busy={analyzing}
+              />
+            )}
           </div>
-        )}
 
-        {err && (
-          <div className="callout error" role="alert">
-            {err}
+          <div className="stack">
+            {busy && (
+              <div className="card working" role="status" aria-live="polite">
+                <div className="spinner" aria-hidden="true" />
+                <p>
+                  {resolving
+                    ? "Matching the address to a Chicago street segment…"
+                    : "Checking City data — permit zones, street cleaning, closures, snow routes…"}
+                </p>
+              </div>
+            )}
+
+            {err && (
+              <div className="callout error" role="alert">
+                {err}
+              </div>
+            )}
+
+            {result && !analyzing && (
+              <ResultCard result={result} blockSummary={blockSummary} />
+            )}
+            {result && !analyzing && (
+              <MonitorPanel
+                locationId={locationId}
+                blockSummary={blockSummary}
+                throughDisplay={result.end_time_display ?? null}
+                when={when}
+                monitor={monitor}
+                changing={changing}
+                onChange={updateMonitor}
+                onCancelChanging={() => setChanging(false)}
+              />
+            )}
+            {result && !analyzing && <AgentInspector result={result} />}
+
+            {!busy && !err && !result && (
+              <div className="card status-placeholder">
+                <span className="card-title">
+                  <Icon name="car" className="tic" /> Parking status
+                </span>
+                <p className="note">
+                  Enter the address you're parked at and run a check — the verdict, the
+                  move-by time, and what was checked will show up here.
+                </p>
+              </div>
+            )}
           </div>
-        )}
-
-        {result && !analyzing && <ResultCard result={result} blockSummary={blockSummary} />}
-        {result && !analyzing && (
-          <MonitorPanel
-            locationId={locationId}
-            blockSummary={blockSummary}
-            throughDisplay={result.end_time_display ?? null}
-            when={when}
-            monitor={monitor}
-            changing={changing}
-            onChange={updateMonitor}
-            onCancelChanging={() => setChanging(false)}
-          />
-        )}
-        {result && !analyzing && <AgentInspector result={result} />}
+        </div>
       </div>
 
-      <footer>
-        <p>
-          A deterministic rule engine decides legality and move-by times from City of
-          Chicago data. An AI agent only investigates context (weather, events, nearby
-          alternatives) and writes the explanation — it never changes the verdict.
-        </p>
-        <p>
-          Data: City of Chicago Open Data Portal, US Census Bureau geocoder &amp; the US
-          National Weather Service. Not affiliated with the City of Chicago.
-        </p>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
