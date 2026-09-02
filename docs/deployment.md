@@ -12,32 +12,54 @@ Target: **$0/month** beyond the existing Claude Pro subscription.
 
 ## Deploy — step by step
 
+Secret names the code expects (align GitHub Actions secrets + Render env to
+these exactly): `GH_DATA_REPO`, `GH_DATA_TOKEN`, `GMAIL_ADDRESS`,
+`GMAIL_APP_PASSWORD`, and optionally `CLAUDE_CODE_OAUTH_TOKEN`, `MONITOR_TOKEN`,
+`FRONTEND_ORIGINS`, `WATCH_NOTIFY_MAP`. (`GMAIL_SENDER` still works as a legacy
+alias for `GMAIL_ADDRESS`.)
+
 **1. Private data repo** (once). Create `<you>/can-i-park-here-chicago-data`
-(private, empty). Create a **fine-grained PAT**: repo access = *only that repo*,
-permissions = **Contents: Read and write**. Keep the token.
+**with a README** (so the `main` branch exists). Create a **fine-grained PAT**:
+repo access = *only that repo*, permissions = **Contents: Read and write**
+(+ Metadata: read, which is automatic). Add `GH_DATA_REPO` + `GH_DATA_TOKEN` as
+**repo Actions secrets** on the public repo.
 
-**2. Backend → Render.** New → **Blueprint** → point at this repo; `render.yaml`
-defines a free Python web service (`rootDir: backend`, `pip install -e .`,
-`uvicorn ...`, health check `/api/health`). In the dashboard set:
-`FRONTEND_ORIGINS`, `GH_DATA_REPO`, `GH_DATA_TOKEN` (and optionally
-`GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD`, `MONITOR_TOKEN`). **Do not** set
-`ANTHROPIC_API_KEY`. Note the service URL.
+**2. Verify the data repo** — locally, with the token in your shell:
 
-**3. Frontend → Vercel.** New Project → this repo → **Root Directory = `frontend`**
-(`vercel.json` sets the rest). Env var `VITE_API_URL` = the Render URL. Deploy;
-note the `*.vercel.app` URL and put it in Render's `FRONTEND_ORIGINS`.
+```bash
+cd backend
+GH_DATA_REPO=<you>/can-i-park-here-chicago-data GH_DATA_TOKEN=github_pat_... \
+  python scripts/check_data_repo.py        # -> "OK: ... readable and writable"
+```
 
-**4. Scheduled monitor** (GitHub Actions, already in the repo). Add repo secrets:
-`GH_DATA_REPO`, `GH_DATA_TOKEN`, `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, and
-optionally `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token` — subscription,
-not an API key). `.github/workflows/{monitor,urgent}.yml` then run on schedule.
+**3. Claude runtime token** (optional, for agent-composed emails). On your
+machine: `claude setup-token` → a one-time browser flow → a subscription OAuth
+token (**not** an API key). Add it as the repo Actions secret
+`CLAUDE_CODE_OAUTH_TOKEN`. Without it the scheduled emails use deterministic
+templates; alerts still fire.
 
-**5. Verify.** `GET <render>/api/health` → `{"status":"ok","agent_available":false}`.
-Open the Vercel URL, resolve an address, run a check — it returns a normal
-`LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN` result with `agent_available: false`
-and a deterministic explanation (no Claude CLI on Render → no investigation /
-prose, but the verdict is unaffected). Trigger `monitor.yml` manually
-(`workflow_dispatch`) and confirm it writes to the private data repo.
+**4. Backend → Render.** Sign in (free), New → **Blueprint** → connect this
+repo; it reads `render.yaml` (free Python web service, `rootDir: backend`,
+health check `/api/health`). In the dashboard set the `sync: false` values:
+`GH_DATA_REPO`, `GH_DATA_TOKEN`, `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`
+(`FRONTEND_ORIGINS` after step 5). **Do not** set `ANTHROPIC_API_KEY`. Note the
+`onrender.com` URL.
+
+**5. Frontend → Vercel.** Sign in (free), New Project → import this repo →
+**Root Directory = `frontend`** (`vercel.json` handles the build). Env var
+`VITE_API_URL` = the Render URL. Deploy; note the `*.vercel.app` URL, then set
+Render's `FRONTEND_ORIGINS` to it and let Render redeploy.
+
+**6. Verify.** `GET <render>/api/health` → `{"status":"ok","agent_available":false}`.
+Open the Vercel URL, enter an address (e.g. `2400 N Clark St`, `60614`), confirm
+the block + side, run the check — a `LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN`
+result with `agent_available: false` and a deterministic explanation (no Claude
+CLI on Render → no investigation/prose; the verdict is unaffected). In the
+public repo → Actions → **Parking monitor (daily)** → *Run workflow* — it should
+succeed and, if you have any watches, write to the private data repo.
+
+Steps 3–5 need your accounts / browser sign-in / secure token entry — they
+cannot be automated from here.
 
 ## Runtime user data — the private data repo
 

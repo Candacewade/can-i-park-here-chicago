@@ -88,6 +88,13 @@ class GitHubJsonStore:
                 time.sleep(0.5)
                 self.load()
                 continue
+            if resp.status_code in (403, 404, 422) and self._sha is None:
+                raise RuntimeError(
+                    f"Could not write {self._path} to the private data repo "
+                    f"(HTTP {resp.status_code}). Check GH_DATA_REPO / GH_DATA_TOKEN "
+                    f"(fine-grained PAT, Contents: read/write on that repo) and that "
+                    f"the '{self._branch}' branch exists. Response: {resp.text[:200]}"
+                )
             resp.raise_for_status()
             self._sha = resp.json()["content"]["sha"]
             return
