@@ -23,24 +23,19 @@ from app.agent.parking_agent import AgentAuthError, AgentRunResult, run_parking_
 from app.api.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
-    BlockOption,
     CreateWatchRequest,
     CreateWatchResponse,
-    LocationsResponse,
+    ExampleAddress,
     MonitorRunResponse,
-    NeighborhoodOption,
-    SideOption,
-    StreetOption,
+    ResolveRequest,
+    ResolveResponse,
+    SideCandidate,
     ToolCallView,
     WatchView,
 )
 from app.config import FRONTEND_ORIGINS, MONITOR_TOKEN, resolve_claude_cli
-from app.locations.registry import (
-    LocationNotFoundError,
-    get_location,
-    list_locations,
-    registry_summary,
-)
+from app.locations.registry import LocationNotFoundError, get_location, remember_location
+from app.locations.resolve import resolve_address
 from app.models.decision import ParkingStatus
 from app.models.requests import ParkingRequest
 from app.monitor import notify
@@ -64,41 +59,45 @@ def health() -> dict:
     return {"status": "ok", "agent_runtime": resolve_claude_cli() is not None}
 
 
-@app.get("/api/locations", response_model=LocationsResponse)
-def locations() -> LocationsResponse:
-    summary = registry_summary()
-    tree: dict[str, dict[str, dict[tuple[str, str], list[SideOption]]]] = {}
-    for loc in list_locations():
-        streets = tree.setdefault(loc.neighborhood, {})
-        blocks = streets.setdefault(loc.street_name, {})
-        key = (loc.from_cross_street, loc.to_cross_street)
-        blocks.setdefault(key, []).append(
-            SideOption(side=loc.side, location_id=loc.location_id)
-        )
+_EXAMPLES = [
+    ExampleAddress(label="Lincoln Park", number=2400, street="N Clark St", zip_code="60614"),
+    ExampleAddress(label="Logan Square", number=3300, street="W Wrightwood Ave", zip_code="60647"),
+    ExampleAddress(label="Wicker Park", number=1600, street="N Damen Ave", zip_code="60647"),
+]
 
-    return LocationsResponse(
-        generated=summary["generated"],
-        source=summary["source"],
-        neighborhoods=[
-            NeighborhoodOption(
-                name=nb,
-                streets=[
-                    StreetOption(
-                        street_name=st,
-                        blocks=[
-                            BlockOption(
-                                from_cross_street=frm,
-                                to_cross_street=to,
-                                sides=sorted(sides, key=lambda s: s.side),
-                            )
-                            for (frm, to), sides in blocks.items()
-                        ],
-                    )
-                    for st, blocks in sorted(streets.items())
-                ],
-            )
-            for nb, streets in sorted(tree.items())
+
+@app.get("/api/locations/examples", response_model=list[ExampleAddress])
+def location_examples() -> list[ExampleAddress]:
+    return _EXAMPLES
+
+
+@app.post("/api/locations/resolve", response_model=ResolveResponse)
+def resolve(payload: ResolveRequest) -> ResolveResponse:
+    resolved = resolve_address(
+        payload.number, payload.street.strip(), payload.zip_code.strip(), payload.side
+    )
+    for loc in resolved.locations.values():
+        remember_location(loc)
+
+    suggested = resolved.suggested
+    return ResolveResponse(
+        in_chicago=resolved.in_chicago,
+        matched_address=resolved.matched_address,
+        street_name=suggested.street_name if suggested else None,
+        neighborhood=resolved.neighborhood,
+        from_cross_street=suggested.from_cross_street if suggested else None,
+        to_cross_street=suggested.to_cross_street if suggested else None,
+        street_sweeping_ward=suggested.street_sweeping_ward if suggested else None,
+        street_sweeping_section=suggested.street_sweeping_section if suggested else None,
+        latitude=suggested.latitude if suggested else None,
+        longitude=suggested.longitude if suggested else None,
+        suggested_side=resolved.suggested_side,
+        side_confidence=resolved.side_confidence,
+        side_options=[
+            SideCandidate(side=s, location_id=loc.location_id, summary=loc.human_summary())
+            for s, loc in resolved.locations.items()
         ],
+        notes=resolved.notes,
     )
 
 

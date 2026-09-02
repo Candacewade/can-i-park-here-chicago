@@ -15,33 +15,46 @@ from app.models.decision import DecisionReason, ParkingStatus
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# --- GET /api/locations ------------------------------------------------
+# --- POST /api/locations/resolve  (Slice 5) --------------------------
 
-class SideOption(BaseModel):
+class ResolveRequest(BaseModel):
+    number: int = Field(gt=0, description="Street number, e.g. 2400")
+    street: str = Field(min_length=1, description="e.g. 'N Clark St'")
+    zip_code: str = Field(default="", description="Chicago ZIP; optional but improves the match")
+    side: str | None = Field(
+        default=None, description="Set when re-resolving with a confirmed side"
+    )
+
+
+class SideCandidate(BaseModel):
     side: str
     location_id: str
+    summary: str
 
 
-class BlockOption(BaseModel):
-    from_cross_street: str
-    to_cross_street: str
-    sides: list[SideOption]
+class ResolveResponse(BaseModel):
+    in_chicago: bool
+    matched_address: str | None = None
+    street_name: str | None = None
+    neighborhood: str | None = None
+    from_cross_street: str | None = None
+    to_cross_street: str | None = None
+    street_sweeping_ward: str | None = None
+    street_sweeping_section: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+    suggested_side: str | None = None
+    side_confidence: str = "low"          # user | high | low
+    side_options: list[SideCandidate] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
 
 
-class StreetOption(BaseModel):
-    street_name: str
-    blocks: list[BlockOption]
-
-
-class NeighborhoodOption(BaseModel):
-    name: str
-    streets: list[StreetOption]
-
-
-class LocationsResponse(BaseModel):
-    generated: bool
-    source: str
-    neighborhoods: list[NeighborhoodOption]
+class ExampleAddress(BaseModel):
+    label: str
+    number: int
+    street: str
+    zip_code: str
 
 
 # --- POST /api/parking/analyze ---------------------------------------

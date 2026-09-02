@@ -1,28 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
-import { analyze, fetchLocations } from "./api";
+import { analyze, fetchExamples, resolveAddress } from "./api";
+import { AddressForm } from "./components/AddressForm";
 import { AgentInspector } from "./components/AgentInspector";
+import { BlockConfirm } from "./components/BlockConfirm";
 import { ResultCard } from "./components/ResultCard";
-import { SelectorForm } from "./components/SelectorForm";
-import type { AnalyzeResponse, LocationsResponse, ParkingSelection } from "./types";
+import type {
+  AddressInput,
+  AnalyzeResponse,
+  ExampleAddress,
+  ResolveResponse,
+  WhenInput,
+} from "./types";
 import "./styles.css";
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-function defaultSelection(loc: LocationsResponse): ParkingSelection {
-  const nb = loc.neighborhoods[0];
-  const street = nb?.streets[0];
-  const block = street?.blocks[0];
+function defaultWhen(): WhenInput {
   const now = new Date();
   const tomorrow = new Date(now.getTime() + 24 * 3600 * 1000);
   return {
-    neighborhood: nb?.name ?? "",
-    street_name: street?.street_name ?? "",
-    from_cross_street: block?.from_cross_street ?? "",
-    to_cross_street: block?.to_cross_street ?? "",
-    side: block?.sides[0]?.side ?? "",
-    location_id: block?.sides[0]?.location_id ?? "",
     start_date: isoDate(now),
     start_time: "19:00",
     end_date: isoDate(tomorrow),
@@ -32,43 +30,64 @@ function defaultSelection(loc: LocationsResponse): ParkingSelection {
 }
 
 export default function App() {
-  const [locations, setLocations] = useState<LocationsResponse | null>(null);
-  const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [selection, setSelection] = useState<ParkingSelection | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [examples, setExamples] = useState<ExampleAddress[]>([]);
+  const [address, setAddress] = useState<AddressInput>({ number: "", street: "", zip: "" });
+  const [resolved, setResolved] = useState<ResolveResponse | null>(null);
+  const [side, setSide] = useState("");
+  const [when, setWhen] = useState<WhenInput>(defaultWhen());
+
+  const [resolving, setResolving] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
-  const [runErr, setRunErr] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchLocations()
-      .then((loc) => {
-        setLocations(loc);
-        setSelection(defaultSelection(loc));
-      })
-      .catch((e) => setLoadErr(String(e.message ?? e)));
+    fetchExamples().then(setExamples).catch(() => setExamples([]));
   }, []);
 
-  const confirmation = useMemo(() => {
-    if (!selection) return null;
-    return {
-      block: `${selection.street_name} between ${selection.from_cross_street} and ${selection.to_cross_street}`,
-      side: selection.side.toUpperCase(),
-      when: `${selection.start_date} ${selection.start_time} → ${selection.end_date} ${selection.end_time}`,
-      permit: selection.permit_zone.trim() ? `Zone ${selection.permit_zone.trim()}` : "No permit",
-    };
-  }, [selection]);
+  const locationId = useMemo(
+    () => resolved?.side_options.find((o) => o.side === side)?.location_id ?? null,
+    [resolved, side],
+  );
 
-  const run = async () => {
-    if (!selection) return;
-    setBusy(true);
-    setRunErr(null);
+  const doResolve = async () => {
+    setResolving(true);
+    setErr(null);
+    setResult(null);
+    setResolved(null);
+    try {
+      const r = await resolveAddress(address);
+      if (!r.in_chicago) {
+        setErr(
+          r.notes[0] ??
+            "That address isn't inside the supported City of Chicago coverage area.",
+        );
+        return;
+      }
+      if (r.side_options.length === 0) {
+        setErr(r.notes[0] ?? "Couldn't match that address to a Chicago street segment.");
+        return;
+      }
+      setResolved(r);
+      setSide(r.suggested_side ?? r.side_options[0].side);
+    } catch (e) {
+      setErr(String((e as Error).message ?? e));
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const doAnalyze = async () => {
+    if (!locationId) return;
+    setAnalyzing(true);
+    setErr(null);
     setResult(null);
     try {
-      setResult(await analyze(selection));
+      setResult(await analyze(locationId, when));
     } catch (e) {
-      setRunErr(String((e as Error).message ?? e));
+      setErr(String((e as Error).message ?? e));
     } finally {
-      setBusy(false);
+      setAnalyzing(false);
     }
   };
 
@@ -82,61 +101,57 @@ export default function App() {
         </p>
       </header>
 
-      {loadErr && <div className="card error">Couldn’t load locations: {loadErr}</div>}
-
-      {locations && selection && (
-        <div className="layout">
-          <div>
-            <SelectorForm
-              locations={locations}
-              value={selection}
-              onChange={setSelection}
-              onSubmit={run}
-              busy={busy}
+      <div className="layout">
+        <div>
+          {!resolved ? (
+            <AddressForm
+              value={address}
+              onChange={setAddress}
+              onSubmit={doResolve}
+              examples={examples}
+              busy={resolving}
             />
-            {confirmation && (
-              <div className="card confirm">
-                <h3>You selected</h3>
-                <p>{confirmation.block}</p>
-                <p>
-                  <strong>{confirmation.side} SIDE</strong>
-                </p>
-                <p>{confirmation.when}</p>
-                <p>{confirmation.permit}</p>
-                {!locations.generated && (
-                  <p className="note">
-                    Pilot coverage: {locations.source}.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div>
-            {busy && (
-              <div className="card working">
-                <div className="spinner" />
-                <p>
-                  The agent is checking City of Chicago data (permit zones, street
-                  cleaning, closures{selection.start_date < "2026-04-01" ? ", snow routes" : ""}
-                  …). This can take ~30 seconds.
-                </p>
-              </div>
-            )}
-            {runErr && <div className="card error">{runErr}</div>}
-            {result && !busy && (
-              <>
-                <ResultCard result={result} />
-                <AgentInspector result={result} />
-              </>
-            )}
-          </div>
+          ) : (
+            <BlockConfirm
+              resolved={resolved}
+              side={side}
+              onSide={setSide}
+              when={when}
+              onWhen={setWhen}
+              onSubmit={doAnalyze}
+              onBack={() => {
+                setResolved(null);
+                setResult(null);
+              }}
+              busy={analyzing}
+            />
+          )}
         </div>
-      )}
+
+        <div>
+          {(resolving || analyzing) && (
+            <div className="card working">
+              <div className="spinner" />
+              <p>
+                {resolving
+                  ? "Resolving the address against City of Chicago street geometry…"
+                  : "The agent is checking City data (permit zones, street cleaning, closures, snow routes)…"}
+              </p>
+            </div>
+          )}
+          {err && <div className="card error">{err}</div>}
+          {result && !analyzing && (
+            <>
+              <ResultCard result={result} />
+              <AgentInspector result={result} />
+            </>
+          )}
+        </div>
+      </div>
 
       <footer>
-        Data: City of Chicago Open Data Portal &amp; the US National Weather
-        Service. Not affiliated with the City of Chicago.
+        Data: City of Chicago Open Data Portal, US Census Bureau geocoder &amp; the
+        US National Weather Service. Not affiliated with the City of Chicago.
       </footer>
     </div>
   );

@@ -1,26 +1,33 @@
 export type ParkingStatus = "LEGAL" | "NOT_LEGAL" | "LEGAL_UNTIL" | "UNKNOWN";
 
-export interface SideOption {
+export interface ExampleAddress {
+  label: string;
+  number: number;
+  street: string;
+  zip_code: string;
+}
+
+export interface SideCandidate {
   side: string;
   location_id: string;
+  summary: string;
 }
-export interface BlockOption {
-  from_cross_street: string;
-  to_cross_street: string;
-  sides: SideOption[];
-}
-export interface StreetOption {
-  street_name: string;
-  blocks: BlockOption[];
-}
-export interface NeighborhoodOption {
-  name: string;
-  streets: StreetOption[];
-}
-export interface LocationsResponse {
-  generated: boolean;
-  source: string;
-  neighborhoods: NeighborhoodOption[];
+
+export interface ResolveResponse {
+  in_chicago: boolean;
+  matched_address: string | null;
+  street_name: string | null;
+  neighborhood: string | null;
+  from_cross_street: string | null;
+  to_cross_street: string | null;
+  street_sweeping_ward: string | null;
+  street_sweeping_section: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  suggested_side: string | null;
+  side_confidence: string;
+  side_options: SideCandidate[];
+  notes: string[];
 }
 
 export interface DecisionReason {
@@ -58,13 +65,13 @@ export interface AnalyzeResponse {
   trace: ToolCallView[];
 }
 
-export interface ParkingSelection {
-  neighborhood: string;
-  street_name: string;
-  from_cross_street: string;
-  to_cross_street: string;
-  side: string;
-  location_id: string;
+export interface AddressInput {
+  number: string;
+  street: string;
+  zip: string;
+}
+
+export interface WhenInput {
   start_date: string;
   start_time: string;
   end_date: string;

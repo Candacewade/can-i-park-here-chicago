@@ -15,13 +15,49 @@ def test_health():
     assert "agent_runtime" in body
 
 
-def test_locations_tree_shape():
-    body = client.get("/api/locations").json()
-    assert body["neighborhoods"]
-    nb = body["neighborhoods"][0]
-    assert nb["name"] == "Logan Square"
-    street = nb["streets"][0]
-    assert street["blocks"][0]["sides"][0]["location_id"]
+def test_examples_endpoint():
+    body = client.get("/api/locations/examples").json()
+    assert isinstance(body, list) and body
+    assert {"label", "number", "street", "zip_code"} <= body[0].keys()
+
+
+def test_resolve_endpoint(monkeypatch):
+    from app.locations.registry import ChicagoParkingLocation
+    from app.locations.resolve import ResolvedLocation
+
+    def mk(s):
+        return ChicagoParkingLocation(
+            location_id=f"n-clark-st-2400-{s}", neighborhood="Lincoln Park",
+            street_name="N Clark St", from_cross_street="W Fullerton Pkwy",
+            to_cross_street="W Arlington Pl", side=s, address_parity="even",
+            address_number=2400, address_range_low=2400, address_range_high=2444,
+            street_sweeping_ward="43", street_sweeping_section="03",
+            latitude=41.9256, longitude=-87.6406,
+        )
+
+    def fake_resolve(number, street, zip_code, side=None):
+        return ResolvedLocation(
+            query="2400 N Clark St", in_chicago=True,
+            matched_address="2400 N CLARK ST, CHICAGO, IL, 60614",
+            neighborhood="Lincoln Park", suggested_side="west", side_confidence="high",
+            side_options=["east", "west"],
+            locations={"east": mk("east"), "west": mk("west")},
+        )
+
+    monkeypatch.setattr(api_main, "resolve_address", fake_resolve)
+    monkeypatch.setattr(api_main, "remember_location", lambda loc: None)
+
+    r = client.post(
+        "/api/locations/resolve",
+        json={"number": 2400, "street": "N Clark St", "zip_code": "60614"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["in_chicago"] is True
+    assert body["neighborhood"] == "Lincoln Park"
+    assert body["suggested_side"] == "west"
+    assert {c["side"] for c in body["side_options"]} == {"east", "west"}
+    assert body["street_sweeping_ward"] == "43"
 
 
 _DECISION = {
