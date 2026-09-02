@@ -76,8 +76,10 @@ never presented as success.
 | `backend/app/evidence_store.py` | ephemeral per-run store for the agent's optional evidence | 2–3 |
 | `backend/app/mcp/` | MCP server: read core evidence + optional investigation tools | 1–3 |
 | `backend/app/agent/` | Claude Agent SDK: investigation + communication wings; tracing | 1–3 |
-| `backend/app/api/` | FastAPI (`/analyze`, `/locations`, `/health`) | 3 |
-| `backend/app/monitor/` | watch model, daily run, email composition | 4 |
+| `backend/app/api/` | FastAPI (`/analyze`, `/locations`, `/health`, `/watches`, `/monitor/run`) | 3–4 |
+| `backend/app/monitor/` | watch model + store, deterministic message scheduling, agent-composed emails, daily run | 4 |
+| `backend/app/services/email.py` | Gmail SMTP (or `./outbox/` with no credentials) | 4 |
+| `.github/workflows/monitor.yml` | daily cron → `python -m app.monitor` → commit watch state | 4 |
 | `frontend/` | React (Vite + TS) structured-selector UI + result UI | 3 |
 
 ## Runtime AI authentication

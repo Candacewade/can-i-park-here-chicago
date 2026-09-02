@@ -1,8 +1,12 @@
 """The FastAPI application.
 
-    POST /api/parking/analyze   run the parking agent over a structured request
-    GET  /api/locations         the selector tree for the frontend
-    GET  /api/health            liveness (also useful to warm a cold Render dyno)
+    POST /api/parking/analyze     run the parking agent over a structured request
+    GET  /api/locations           the selector tree for the frontend
+    GET  /api/health              liveness (also warms a cold Render dyno)
+    POST /api/watches             register a car-watch for daily monitoring
+    GET  /api/watches/{id}        watch state (no email echoed back)
+    DELETE /api/watches/{id}      stop monitoring a watch
+    POST /api/monitor/run         trigger the daily pass (protected)
 
 One process contains FastAPI + the Claude agent + the MCP server + rule engine
 (Master Build Plan sec. 49).
@@ -12,7 +16,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.parking_agent import AgentAuthError, AgentRunResult, run_parking_agent
@@ -20,18 +24,31 @@ from app.api.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
     BlockOption,
+    CreateWatchRequest,
+    CreateWatchResponse,
     LocationsResponse,
+    MonitorRunResponse,
     NeighborhoodOption,
     SideOption,
     StreetOption,
     ToolCallView,
+    WatchView,
 )
-from app.config import FRONTEND_ORIGINS, resolve_claude_cli
-from app.locations.registry import list_locations, registry_summary
+from app.config import FRONTEND_ORIGINS, MONITOR_TOKEN, resolve_claude_cli
+from app.locations.registry import (
+    LocationNotFoundError,
+    get_location,
+    list_locations,
+    registry_summary,
+)
 from app.models.decision import ParkingStatus
 from app.models.requests import ParkingRequest
+from app.monitor import notify
+from app.monitor.models import Watch, WatchStatus
+from app.monitor.run import run_monitor
+from app.monitor.store import get_store
 
-app = FastAPI(title="Can I Park Here? — Chicago", version="0.3.0")
+app = FastAPI(title="Can I Park Here? — Chicago", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -164,3 +181,90 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return _to_response(result)
+
+
+# --- watches / monitoring (Slice 4) ---------------------------------
+
+def _watch_view(w: Watch) -> WatchView:
+    return WatchView(
+        watch_id=w.watch_id,
+        location_id=w.location_id,
+        start_time=w.start_time,
+        end_time=w.end_time,
+        permit_zone=w.permit_zone,
+        status=w.status.value,
+        created_at=w.created_at,
+        last_decision=w.last_decision,
+        last_checked_at=w.last_checked_at,
+        notified_count=len(w.notified),
+    )
+
+
+@app.post("/api/watches", response_model=CreateWatchResponse, status_code=201)
+def create_watch(payload: CreateWatchRequest) -> CreateWatchResponse:
+    try:
+        get_location(payload.location_id)
+    except LocationNotFoundError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        watch = Watch(
+            location_id=payload.location_id,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            permit_zone=payload.permit_zone,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    store = get_store()
+    watches = store.load()
+    watches[watch.watch_id] = watch
+    store.save(watches)
+
+    registered = notify.register_email(watch.watch_id, payload.email)
+    note = (
+        "Email registered for notifications."
+        if registered
+        else (
+            "Watch created, but this environment cannot store the email. An "
+            f"operator must add {{\"{watch.watch_id}\": {{\"email\": \"...\"}}}} to "
+            "the WATCH_NOTIFY_MAP secret before notifications will send."
+        )
+    )
+    return CreateWatchResponse(
+        watch_id=watch.watch_id, email_registered=registered, note=note
+    )
+
+
+@app.get("/api/watches/{watch_id}", response_model=WatchView)
+def get_watch(watch_id: str) -> WatchView:
+    watch = get_store().load().get(watch_id)
+    if watch is None:
+        raise HTTPException(status_code=404, detail="unknown watch")
+    return _watch_view(watch)
+
+
+@app.delete("/api/watches/{watch_id}", response_model=WatchView)
+def delete_watch(watch_id: str) -> WatchView:
+    store = get_store()
+    watches = store.load()
+    watch = watches.get(watch_id)
+    if watch is None:
+        raise HTTPException(status_code=404, detail="unknown watch")
+    watch.status = WatchStatus.RESOLVED
+    store.save(watches)
+    notify.forget(watch_id)
+    return _watch_view(watch)
+
+
+@app.post("/api/monitor/run", response_model=MonitorRunResponse)
+async def monitor_run(x_monitor_token: str | None = Header(default=None)) -> MonitorRunResponse:
+    if MONITOR_TOKEN and x_monitor_token != MONITOR_TOKEN:
+        raise HTTPException(status_code=401, detail="bad or missing X-Monitor-Token")
+    report = await run_monitor(use_agent=resolve_claude_cli() is not None)
+    return MonitorRunResponse(
+        ran_at=report.ran_at,
+        checked=report.checked,
+        emails_sent=report.emails_sent,
+        summary=report.summary(),
+    )

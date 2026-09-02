@@ -6,11 +6,14 @@ contract can evolve independently.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.models.decision import DecisionReason, ParkingStatus
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # --- GET /api/locations ------------------------------------------------
 
@@ -84,3 +87,51 @@ class AnalyzeResponse(BaseModel):
     model: str
     duration_ms: float | None = None
     trace: list[ToolCallView] = Field(default_factory=list)
+
+
+# --- watches (Slice 4) ------------------------------------------------
+
+class CreateWatchRequest(BaseModel):
+    location_id: str = Field(min_length=1)
+    start_time: datetime
+    end_time: datetime
+    permit_zone: str | None = None
+    email: str = Field(
+        description="Notification address. Stored only in the secret map, never in the repo."
+    )
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        v = v.strip()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("not a valid email address")
+        return v
+
+
+class CreateWatchResponse(BaseModel):
+    watch_id: str
+    email_registered: bool
+    note: str
+
+
+class WatchView(BaseModel):
+    """No email is ever echoed back."""
+
+    watch_id: str
+    location_id: str
+    start_time: datetime
+    end_time: datetime
+    permit_zone: str | None
+    status: str
+    created_at: datetime
+    last_decision: str | None
+    last_checked_at: datetime | None
+    notified_count: int
+
+
+class MonitorRunResponse(BaseModel):
+    ran_at: datetime
+    checked: int
+    emails_sent: int
+    summary: str

@@ -7,16 +7,17 @@ logic** rather than allowing the LLM to invent regulations, and (in progress)
 includes **agent evaluations** that test tool selection, missing-data handling,
 and hallucination prevention.
 
-> Status: **Slice 3 complete.** A deterministic core (real City of Chicago Open
+> Status: **Slice 4 complete.** A deterministic core (real City of Chicago Open
 > Data → completeness check → rule engine) always returns
 > `LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN` + `move_by` + a hard urgent-alert
 > flag on its own. The Claude agent wraps that core with optional
 > **investigation** (snow/weather via NWS, nearby events, unusual closures,
 > `find_legal_parking_nearby`) and **communication** (prioritization, plain-
-> language explanation). A FastAPI `/api/parking/analyze` endpoint and a React
-> structured-selector UI drive the whole flow, with an agent-run inspector.
-> Slice 4 adds the daily monitoring email. See
-> [docs/architecture.md](docs/architecture.md).
+> language explanation). A FastAPI backend + React structured-selector UI drive
+> the interactive flow; a **daily GitHub Actions monitor** re-checks registered
+> car-watches and emails a morning summary, deterministically-triggered urgent
+> alerts, and move reminders (T-3 days / night before). $0/month.
+> See [docs/architecture.md](docs/architecture.md) · [docs/monitoring.md](docs/monitoring.md).
 
 ## What's interesting here
 
@@ -72,5 +73,5 @@ visible in the agent-run inspector.
 | 1 | `ParkingRequest` → agent → MCP → real data → visible result | ✅ |
 | 2 | deterministic completeness check + `evaluate_parking()`; per-run evidence store | ✅ |
 | 3 | agent-role inversion (deterministic core always runs) + snow/weather + events + nearby-parking + FastAPI `/analyze` + React UI | ✅ |
-| 4 | proactive monitoring: watches, daily email, deterministic urgent alerts, move reminders | |
-| 5 | generated Chicago-wide block registry + more datasets + deploy + polish | |
+| 4 | proactive monitoring: watches, daily email, deterministic urgent alerts, move reminders | ✅ |
+| 5 | generated Chicago-wide block registry + more datasets + deploy + polish | next |

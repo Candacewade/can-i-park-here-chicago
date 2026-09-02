@@ -46,14 +46,20 @@ Frontend (Vercel):
 VITE_API_URL=https://<your-service>.onrender.com
 ```
 
-Monitoring (GitHub Actions secrets, Slice 4):
+Monitoring (GitHub Actions repo secrets, Slice 4):
 
 ```
-GH_WATCHES_TOKEN      fine-grained PAT, contents:write on this repo
 WATCH_NOTIFY_MAP      JSON: { "wch_...": { "email": "..." } }   ← the only place emails live
 GMAIL_APP_PASSWORD    Gmail app password for the sender account
 GMAIL_SENDER          the sender address
 ```
+
+The workflow uses the built-in `GITHUB_TOKEN` (with `permissions: contents:
+write`) to commit `backend/watches.json` back — no PAT needed. A PAT
+(`GH_WATCHES_TOKEN` + `GH_WATCHES_REPO`) is only needed if you also want the
+**Render API** to write watches through the GitHub contents API; otherwise
+`POST /api/watches` on Render returns `email_registered: false` and the operator
+adds the entry to `WATCH_NOTIFY_MAP` by hand.
 
 ## Render notes
 

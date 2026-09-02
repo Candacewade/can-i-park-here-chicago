@@ -17,6 +17,10 @@ dist/
 .env.local
 *.local
 
+# Monitoring: PII map (never committed) and rendered emails
+backend/notify_map.local.json
+backend/outbox/
+
 # Node / frontend
 node_modules/
 frontend/dist/

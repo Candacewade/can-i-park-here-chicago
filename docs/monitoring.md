@@ -1,4 +1,4 @@
-# Proactive Monitoring  (Slice 4 — design)
+# Proactive Monitoring  (Slice 4)
 
 The interactive `/analyze` answers "can I park here right now?". Monitoring
 answers it **for you, every day, until you move the car** — a morning status
@@ -6,77 +6,80 @@ email, urgent alerts when a time-sensitive risk appears, and move reminders.
 
 ## Concepts
 
-**Watch** — a registered parked car:
+**Watch** — a registered parked car (`app/monitor/models.py`):
 
-```
-watch_id        stable, anonymous (e.g. "wch_7f3a9c2b")   ← the only identifier in the repo
-location_id     canonical block
-start_time      when the car was parked
-end_time        when the driver plans to leave (the horizon we monitor to)
-permit_zone     optional
-created_at
-status          active | resolved | expired
-last_decision   the most recent ParkingDecision status
-notified        which messages have already gone out (morning:<date>, reminder:t-3, reminder:night-before, alert:<hash>)
-```
+| field | |
+|---|---|
+| `watch_id` | stable, anonymous — `wch_<12 hex>` — **the only identifier in the repo** |
+| `location_id`, `start_time`, `end_time`, `permit_zone` | the request to monitor |
+| `status` | `active` / `resolved` (moved / cancelled) / `expired` (`end_time` passed) |
+| `created_at`, `last_decision`, `last_checked_at` | |
+| `notified` | keys of messages already sent: `morning:<date>`, `urgent:<cause-hash>`, `reminder:3d`, `reminder:night` |
 
 ## Persistence — `$0`, no database, **no PII in the repo**
 
-| What | Where |
+| what | where |
 |---|---|
-| `watches.json` (the fields above, **no email**) | committed to the repo via the GitHub API |
-| `watch_id → { email, ... }` notification map | GitHub Actions **secret** `WATCH_NOTIFY_MAP` (JSON), never committed |
-| Gmail app password | GitHub Actions secret `GMAIL_APP_PASSWORD` |
+| watch state (the fields above, **no email**) | `backend/watches.json`, committed to the repo |
+| `watch_id → {email}` map | `WATCH_NOTIFY_MAP` GitHub Actions **secret** (JSON), or a git-ignored `backend/notify_map.local.json` in dev — never committed |
+| Gmail app password | `GMAIL_APP_PASSWORD` secret |
 
-The API writes `watches.json` through the GitHub contents API on
-add/remove/resolve. The scheduled job reads it, updates `status` / `notified` /
-`last_decision`, and commits the change back. Git history is the audit log.
+`app/monitor/store.py` picks a backend by env: `FileWatchStore` (a checkout — the
+scheduled job, local dev) or `GitHubWatchStore` (the contents API — for the
+FastAPI service on Render, which has no durable disk).
+
+`POST /api/watches` creates the watch (state) and tries to register the email in
+the local map. Where that isn't writable (Render), it returns
+`email_registered: false` and a note: an operator must add the `watch_id → email`
+entry to the `WATCH_NOTIFY_MAP` secret before notifications send. The monitor
+still evaluates a watch with no destination — it just doesn't email.
 
 ## Daily run — GitHub Actions `schedule:` cron
 
-`.github/workflows/monitor.yml` (Render Free has no cron). Each run, for every
-`active` watch:
+`.github/workflows/monitor.yml` runs `python -m app.monitor --no-agent` (no
+Claude CLI in CI → deterministic templates; alerts still send, only the prose
+degrades) and commits `backend/watches.json` changes back. Cron
+`0 13 * * *` ≈ 07:00–08:00 America/Chicago. `POST /api/monitor/run` (optionally
+guarded by `X-Monitor-Token`) is an alternative trigger for an external pinger.
+
+Per active watch, `app/monitor/run.py`:
 
 ```
-1. build the ParkingRequest from the watch
-2. DETERMINISTIC CORE: gather → completeness → evaluate_parking()
-      → ParkingDecision + urgent_alert flag
-3. decide which messages are due (deterministic):
-      • morning summary        — once per calendar day
-      • urgent alert           — iff decision.urgent_alert and not already sent for this cause
-      • reminder T-3 days      — 3 days before the earliest required move
-      • reminder night-before  — the evening before the earliest required move
-4. AGENT (per watch, only if step 3 has something to send):
-      • investigation wing: snow/weather, nearby events, unusual closure detail
-      • find_legal_parking_nearby() for alerts / reminders
-      • communication wing: compose subject + body, set priority
-5. send via Gmail SMTP; record in `notified`; commit `watches.json`
+1. DETERMINISTIC CORE: gather_evidence -> evaluate_parking -> decision + urgent_alert
+2. app/monitor/schedule.py:due_messages(watch, decision, now)  -- purely deterministic:
+     morning        -- once per calendar day
+     urgent         -- iff decision.urgent_alert, once per distinct cause
+     reminder 3d    -- exactly REMINDER_DAYS_AHEAD days before decision.move_by
+     reminder night -- the evening before move_by (after REMINDER_NIGHT_BEFORE_HOUR)
+3. if anything is due AND the agent runtime is available:
+     run_parking_agent(request)  -- investigation wing (snow/weather, events,
+     find_legal_parking_nearby) + prose; re-take the decision + due list
+4. compose one email for the highest-priority due message
+     (URGENT > night-before > 3d > morning); mark every due key notified
+5. send via Gmail SMTP (or ./outbox/ with no credentials); persist watches
 ```
 
-## The safety line in monitoring
+## The safety line
 
-- **Deterministic decides whether an urgent alert is warranted** — `urgent_alert`
-  comes straight from `evaluate_parking()` (verified restriction forcing a move
-  inside the urgent window). The agent may reprioritize wording and ordering; it
-  cannot add or suppress the trigger.
-- **The agent composes** every message and owns the soft content — daily
-  summaries, "street cleaning is also due Thursday", "the forecast shows 3″ of
-  snow and your block is a 2-inch route".
-- If the agent runtime is unavailable in CI, alerts still go out with a plain
-  deterministic template; only the prose degrades.
+- **Deterministic decides whether an urgent alert is warranted.** `urgent_alert`
+  comes straight from `evaluate_parking()`. The agent may reprioritize and word
+  it; it cannot add or suppress the trigger.
+- **The agent composes** the prose and owns soft content — the daily summary,
+  "street cleaning is also due Thursday", the snow-risk narrative.
+- No agent runtime ⇒ a plain deterministic template; the alert still goes out.
 
 ## Email
 
 `app/services/email.py` — `smtplib` + STARTTLS to `smtp.gmail.com:587`, auth with
-the app-password secret. Plain-text + minimal HTML. ~500/day limit is ample.
-Local/dev with no secret ⇒ render to `./outbox/` instead of sending.
+the app-password secret. ~500/day is ample. No `GMAIL_SENDER` /
+`GMAIL_APP_PASSWORD` ⇒ the message is written to `backend/outbox/` instead.
 
-## API surface (Slice 4)
+## API surface
 
 ```
 POST   /api/watches        { location_id, start_time, end_time, permit_zone, email }
-                           → { watch_id }   (email goes only to the secret map, never the repo)
-GET    /api/watches/{id}   status + last decision   (no email echoed back)
-DELETE /api/watches/{id}   → resolved
-POST   /api/monitor/run    protected; what the scheduled workflow calls
+                           -> { watch_id, email_registered, note }
+GET    /api/watches/{id}    state only — no email echoed back
+DELETE /api/watches/{id}    -> status: resolved
+POST   /api/monitor/run     run the pass now (X-Monitor-Token if MONITOR_TOKEN set)
 ```
