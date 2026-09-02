@@ -1,0 +1,48 @@
+name: Parking monitor
+
+# Daily pass over registered car-watches. Render Free has no cron, so this runs
+# here. See docs/monitoring.md.
+on:
+  schedule:
+    - cron: "0 13 * * *"   # ~07:00-08:00 America/Chicago
+  workflow_dispatch: {}
+
+permissions:
+  contents: write          # to commit watch-state changes back
+
+concurrency:
+  group: parking-monitor
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # PII + credentials live only in secrets, never in the repo.
+      WATCH_NOTIFY_MAP: ${{ secrets.WATCH_NOTIFY_MAP }}
+      GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+
+      # No Claude CLI in CI -> deterministic templates only. Alerts still send;
+      # only the prose degrades.
+      - run: python -m app.monitor --no-agent
+
+      - name: Commit watch-state changes
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          if ! git diff --quiet -- backend/watches.json; then
+            git config user.name "parking-monitor[bot]"
+            git config user.email "parking-monitor@users.noreply.github.com"
+            git add backend/watches.json
+            git commit -m "chore: monitor run $(date -u +%FT%TZ)"
+            git push
+          fi

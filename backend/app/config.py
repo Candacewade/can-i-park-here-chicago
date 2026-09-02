@@ -95,3 +95,41 @@ def resolve_claude_cli() -> str | None:
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 LOCATIONS_FIXTURE_PATH = BACKEND_ROOT / "app" / "locations" / "fixtures.json"
+
+# --- Proactive monitoring (Slice 4) ----------------------------------
+
+# Watch state (NO personally identifying info) -- committed to the repo.
+WATCHES_FILE = Path(os.environ.get("WATCHES_FILE", str(BACKEND_ROOT / "watches.json")))
+
+# Notification destinations (the PII). In production: WATCH_NOTIFY_MAP env, a JSON
+# object {watch_id: {"email": "..."}}, held as a GitHub Actions secret. In local
+# dev: a git-ignored file the API may also write.
+WATCH_NOTIFY_MAP = os.environ.get("WATCH_NOTIFY_MAP") or ""
+NOTIFY_MAP_LOCAL_FILE = Path(
+    os.environ.get("NOTIFY_MAP_LOCAL_FILE", str(BACKEND_ROOT / "notify_map.local.json"))
+)
+
+# GitHub contents-API store for watches.json (used when the API runs somewhere
+# without a durable filesystem, e.g. Render). Falls back to the local file.
+GH_WATCHES_REPO = os.environ.get("GH_WATCHES_REPO") or None      # "owner/repo"
+GH_WATCHES_TOKEN = os.environ.get("GH_WATCHES_TOKEN") or None
+GH_WATCHES_BRANCH = os.environ.get("GH_WATCHES_BRANCH", "main")
+GH_WATCHES_PATH = os.environ.get("GH_WATCHES_PATH", "backend/watches.json")
+
+# Email (Gmail SMTP via an app password). No secret -> emails are written to
+# OUTBOX_DIR instead of sent.
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+GMAIL_SENDER = os.environ.get("GMAIL_SENDER") or None
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD") or None
+OUTBOX_DIR = Path(os.environ.get("OUTBOX_DIR", str(BACKEND_ROOT / "outbox")))
+
+# Reminders fire this many days ahead of a required move, and the evening before
+# (after this local hour).
+REMINDER_DAYS_AHEAD = int(os.environ.get("REMINDER_DAYS_AHEAD", "3"))
+REMINDER_NIGHT_BEFORE_HOUR = int(os.environ.get("REMINDER_NIGHT_BEFORE_HOUR", "17"))
+
+# Optional shared secret to protect POST /api/monitor/run (for an external
+# scheduler). The GitHub Actions job runs `python -m app.monitor` directly and
+# does not need this.
+MONITOR_TOKEN = os.environ.get("MONITOR_TOKEN") or None
