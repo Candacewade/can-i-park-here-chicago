@@ -4,14 +4,10 @@ import pytest
 
 from app import evidence_store
 from app.config import CHICAGO_TZ
-from app.models.evidence import (
-    EvidenceStatus,
-    ResidentialZoneEvidence,
-    StreetCleaningEvidence,
-)
+from app.models.evidence import EvidenceStatus, WeatherOutlookEvidence
 
-START = datetime(2026, 9, 8, 19, tzinfo=CHICAGO_TZ)
-END = datetime(2026, 9, 9, 11, tzinfo=CHICAGO_TZ)
+START = datetime(2026, 1, 8, 19, tzinfo=CHICAGO_TZ)
+END = datetime(2026, 1, 9, 11, tzinfo=CHICAGO_TZ)
 
 
 @pytest.fixture(autouse=True)
@@ -21,65 +17,77 @@ def _clean_store():
     evidence_store.reset()
 
 
-def test_record_then_build_bundle_returns_stored_evidence():
-    res = ResidentialZoneEvidence(status=EvidenceStatus.VERIFIED, zone_required="143")
-    clean = StreetCleaningEvidence(status=EvidenceStatus.VERIFIED)
-    evidence_store.record("run1", evidence_store.RESIDENTIAL, location_id="loc", evidence=res)
+def _weather(inches):
+    return WeatherOutlookEvidence(status=EvidenceStatus.VERIFIED, expected_snow_inches=inches)
+
+
+def test_record_then_read_back_verdict_relevant():
     evidence_store.record(
-        "run1", evidence_store.STREET_CLEANING,
-        location_id="loc", evidence=clean, start=START, end=END,
+        "run1", evidence_store.WEATHER,
+        location_id="loc", evidence=_weather(3.0), start=START, end=END,
     )
+    got = evidence_store.verdict_relevant_evidence(
+        "run1", location_id="loc", start=START, end=END
+    )
+    assert got[evidence_store.WEATHER].expected_snow_inches == 3.0
 
-    bundle = evidence_store.build_bundle("run1", location_id="loc", start=START, end=END)
-    assert bundle.residential is res
-    assert bundle.street_cleaning is clean
-    assert bundle.temporary_closure is None  # never recorded
 
-
-def test_unknown_run_id_yields_empty_bundle():
-    bundle = evidence_store.build_bundle("nope", location_id="loc", start=START, end=END)
-    assert bundle.residential is None
-    assert bundle.street_cleaning is None
-    assert bundle.temporary_closure is None
+def test_unknown_run_id_is_empty():
+    assert evidence_store.verdict_relevant_evidence(
+        "nope", location_id="loc", start=START, end=END
+    ) == {}
 
 
 def test_evidence_for_different_block_is_not_returned():
-    res = ResidentialZoneEvidence(status=EvidenceStatus.VERIFIED, zone_required="143")
-    evidence_store.record("run1", evidence_store.RESIDENTIAL, location_id="block-A", evidence=res)
-    bundle = evidence_store.build_bundle("run1", location_id="block-B", start=START, end=END)
-    assert bundle.residential is None
-
-
-def test_street_cleaning_for_different_interval_is_not_returned():
-    clean = StreetCleaningEvidence(status=EvidenceStatus.VERIFIED)
     evidence_store.record(
-        "run1", evidence_store.STREET_CLEANING,
-        location_id="loc", evidence=clean, start=START, end=END,
+        "run1", evidence_store.WEATHER,
+        location_id="block-A", evidence=_weather(3.0), start=START, end=END,
     )
-    other_end = END + timedelta(hours=3)
-    bundle = evidence_store.build_bundle("run1", location_id="loc", start=START, end=other_end)
-    assert bundle.street_cleaning is None
+    got = evidence_store.verdict_relevant_evidence(
+        "run1", location_id="block-B", start=START, end=END
+    )
+    assert got == {}
 
 
-def test_equivalent_timestamps_with_different_offset_still_match():
-    clean = StreetCleaningEvidence(status=EvidenceStatus.VERIFIED)
+def test_evidence_for_different_interval_is_not_returned():
     evidence_store.record(
-        "run1", evidence_store.STREET_CLEANING,
-        location_id="loc", evidence=clean, start=START, end=END,
+        "run1", evidence_store.WEATHER,
+        location_id="loc", evidence=_weather(3.0), start=START, end=END,
     )
-    # same instants, expressed in UTC
-    bundle = evidence_store.build_bundle(
-        "run1",
-        location_id="loc",
-        start=START.astimezone(tz=None).astimezone(),
-        end=END.astimezone(),
+    got = evidence_store.verdict_relevant_evidence(
+        "run1", location_id="loc", start=START, end=END + timedelta(hours=3)
     )
-    assert bundle.street_cleaning is clean
+    assert got == {}
 
 
-def test_clear_removes_run():
-    res = ResidentialZoneEvidence(status=EvidenceStatus.VERIFIED)
-    evidence_store.record("run1", evidence_store.RESIDENTIAL, location_id="loc", evidence=res)
+def test_equivalent_timestamps_different_offset_still_match():
+    evidence_store.record(
+        "run1", evidence_store.EVENTS,
+        location_id="loc", evidence=_weather(0.0), start=START, end=END,
+    )
+    got = evidence_store.verdict_relevant_evidence(
+        "run1", location_id="loc", start=START.astimezone(), end=END.astimezone()
+    )
+    assert evidence_store.EVENTS in got
+
+
+def test_closure_detail_is_not_verdict_relevant():
+    evidence_store.record(
+        "run1", evidence_store.CLOSURE_DETAIL,
+        location_id="loc", evidence=_weather(0.0), start=START, end=END,
+    )
+    got = evidence_store.verdict_relevant_evidence(
+        "run1", location_id="loc", start=START, end=END
+    )
+    assert got == {}  # stored for tracing, never fed to the engine
+
+
+def test_clear_and_reset():
+    evidence_store.record(
+        "run1", evidence_store.WEATHER,
+        location_id="loc", evidence=_weather(1.0), start=START, end=END,
+    )
     evidence_store.clear("run1")
-    bundle = evidence_store.build_bundle("run1", location_id="loc", start=START, end=END)
-    assert bundle.residential is None
+    assert evidence_store.verdict_relevant_evidence(
+        "run1", location_id="loc", start=START, end=END
+    ) == {}

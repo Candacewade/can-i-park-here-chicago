@@ -106,9 +106,72 @@ class TemporaryClosureEvidence(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class SnowRouteEvidence(BaseModel):
+    """Whether the block is on a City '2-inch' snow route. The ban only bites once
+    >=2 inches accumulate, so ``ban_active`` is only True when weather evidence
+    confirms it (set by the engine, not this client)."""
+
+    status: EvidenceStatus
+    provenance: SourceProvenance | None = None
+
+    is_two_inch_route: bool = False
+    on_street: str | None = None
+    ban_active: bool = Field(
+        default=False,
+        description="True only if a 2-inch route AND >=2in is verified in the interval.",
+    )
+    in_overnight_ban_period: bool = Field(
+        default=False,
+        description="Interval overlaps the Dec 1 - Apr 1 2-7 AM overnight-ban season.",
+    )
+    notes: list[str] = Field(default_factory=list)
+
+
+class WeatherOutlookEvidence(BaseModel):
+    """NWS forecast for the block over the requested interval. A forecast, not a
+    fact -- feeds the agent's risk narrative and (only when it confirms >=2 in on
+    a 2-inch route) the snow_route verdict."""
+
+    status: EvidenceStatus
+    provenance: SourceProvenance | None = None
+
+    expected_snow_inches: float | None = None
+    max_snow_probability: int | None = None
+    summary: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class NearbyEvent(BaseModel):
+    permit_number: str
+    name: str
+    start: datetime
+    end: datetime
+    distance_note: str = ""
+
+
+class EventImpactEvidence(BaseModel):
+    """Special-event permits near the block during the interval. Context only
+    (congestion, crowds); parking-affecting events are already covered by
+    temporary_closure."""
+
+    status: EvidenceStatus
+    provenance: SourceProvenance | None = None
+
+    events: list[NearbyEvent] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class ParkingEvidence(BaseModel):
-    """The full evidence bundle handed to the deterministic evaluator."""
+    """The full evidence bundle handed to the deterministic evaluator.
+
+    residential / street_cleaning / temporary_closure are the deterministic core
+    (always gathered). snow_route is core in winter, otherwise optional. weather
+    and events are only ever added by the agent's investigation wing.
+    """
 
     residential: ResidentialZoneEvidence | None = None
     street_cleaning: StreetCleaningEvidence | None = None
     temporary_closure: TemporaryClosureEvidence | None = None
+    snow_route: SnowRouteEvidence | None = None
+    weather: WeatherOutlookEvidence | None = None
+    events: EventImpactEvidence | None = None

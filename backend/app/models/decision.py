@@ -43,3 +43,9 @@ class ParkingDecision(BaseModel):
     start_time_display: str | None = None
     end_time_display: str | None = None
     move_by_display: str | None = None
+
+    # Hard urgent-alert trigger. Set deterministically: a verified restriction
+    # requires the car to move within the urgent window. The agent may prioritize
+    # and word the alert; it may NOT decide whether this fires.
+    urgent_alert: bool = False
+    urgent_reason: str | None = None

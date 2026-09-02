@@ -1,10 +1,9 @@
-"""Independently gather every piece of parking evidence for a request in one call.
+"""The deterministic core evidence gather -- runs on every request.
 
-NOT on the agent path. In production the agent calls the individual MCP evidence
-tools (which store their output in ``app.evidence_store``) and then
-``evaluate_parking_request`` reads that stored evidence. This helper is the
-non-agent equivalent: it is used by tests and by any future deterministic-only
-baseline (e.g. an eval harness that scores the agent against a full gather).
+Since the 2026-09-01 revision this is *the* primary path (not a "non-agent
+baseline"). Both the API/agent orchestration and any direct/eval path call it.
+It always fetches the required categories; the agent can only *add* optional
+evidence (weather, events, off-season snow) on top.
 """
 
 from __future__ import annotations
@@ -13,20 +12,28 @@ from app.locations.registry import LocationNotFoundError, get_location
 from app.models.evidence import EvidenceStatus, ParkingEvidence, ResidentialZoneEvidence
 from app.models.requests import ParkingRequest
 from app.services.residential_zones import get_residential_zone_evidence
+from app.services.snow_routes import get_snow_route_evidence, in_overnight_ban_period
 from app.services.street_cleaning import get_street_cleaning_evidence
 from app.services.street_closures import get_street_closure_evidence
+
+
+def _snow_is_core(request: ParkingRequest) -> bool:
+    """Snow-route evidence is part of the required core when the interval touches
+    the Dec 1 - Apr 1 overnight-ban season."""
+    return in_overnight_ban_period(request.start_time) or in_overnight_ban_period(request.end_time)
 
 
 def gather_evidence(request: ParkingRequest) -> ParkingEvidence:
     try:
         location = get_location(request.location_id)
     except LocationNotFoundError as exc:
-        unsupported = ResidentialZoneEvidence(
-            status=EvidenceStatus.UNSUPPORTED, notes=[str(exc)]
+        return ParkingEvidence(
+            residential=ResidentialZoneEvidence(
+                status=EvidenceStatus.UNSUPPORTED, notes=[str(exc)]
+            )
         )
-        return ParkingEvidence(residential=unsupported)
 
-    return ParkingEvidence(
+    evidence = ParkingEvidence(
         residential=get_residential_zone_evidence(location),
         street_cleaning=get_street_cleaning_evidence(
             location, request.start_time, request.end_time
@@ -35,3 +42,8 @@ def gather_evidence(request: ParkingRequest) -> ParkingEvidence:
             location, request.start_time, request.end_time
         ),
     )
+    if _snow_is_core(request):
+        evidence.snow_route = get_snow_route_evidence(
+            location, request.start_time, request.end_time
+        )
+    return evidence

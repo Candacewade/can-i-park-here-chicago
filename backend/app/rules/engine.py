@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.config import CHICAGO_TZ
+from app.config import CHICAGO_TZ, URGENT_WINDOW_HOURS
 from app.models.decision import DecisionReason, ParkingDecision, ParkingStatus
 from app.models.evidence import EvidenceStatus, ParkingEvidence
 from app.models.requests import ParkingRequest
@@ -24,6 +24,7 @@ from app.rules.completeness import check_completeness
 _RESIDENTIAL_DS = "qiag-khha"
 _CLEANING_DS = "u5ai-3efk"
 _CLOSURE_DS = "rzy5-8tax"
+_SNOW_DS = "i6k4-giaj"
 
 
 def _fmt(dt: datetime) -> str:
@@ -151,11 +152,66 @@ def _closure_reasons(request, evidence):
     return _window_conflicts(request, tc.closures, "temporary_closure", _CLOSURE_DS, label)
 
 
+def _snow_reasons(request, evidence):
+    sr = evidence.snow_route
+    if not sr or sr.status != EvidenceStatus.VERIFIED:
+        return [], []
+    if not sr.is_two_inch_route:
+        return [DecisionReason(
+            category="snow_route", verdict="allows",
+            detail="Block is not on a City 2-inch snow route.",
+            source_dataset_id=_SNOW_DS,
+        )], []
+
+    weather = evidence.weather
+    snow_in = (
+        weather.expected_snow_inches
+        if weather and weather.status == EvidenceStatus.VERIFIED
+        else None
+    )
+    if snow_in is not None and snow_in >= 2.0:
+        msg = (
+            f"This block is a 2-inch snow route and about {snow_in} in of snow is "
+            "forecast during your interval -- on-street parking is banned and cars "
+            "may be towed."
+        )
+        return [DecisionReason(
+            category="snow_route", verdict="blocks", detail=msg, source_dataset_id=_SNOW_DS,
+        )], [_Conflict("snow_route", msg, _SNOW_DS)]
+
+    note = (
+        "Advisory: this block is a 2-inch snow route. Parking is banned here only "
+        "once 2+ inches of snow has accumulated."
+    )
+    if snow_in is not None:
+        note += f" Current forecast: ~{snow_in} in."
+    elif weather is None or weather.status != EvidenceStatus.VERIFIED:
+        note += " Snowfall has not been verified."
+    return [DecisionReason(
+        category="snow_route", verdict="allows", detail=note, source_dataset_id=_SNOW_DS,
+    )], []
+
+
+def _urgent_alert(status: ParkingStatus, move_by: datetime | None) -> tuple[bool, str | None]:
+    """Deterministic hard trigger for the Slice 4 monitor. The agent may prioritize
+    and word the alert; it may not decide whether it fires."""
+    if status is ParkingStatus.NOT_LEGAL:
+        return True, "A verified restriction prevents parking here for this request."
+    if status is ParkingStatus.LEGAL_UNTIL and move_by is not None:
+        hours = (move_by - datetime.now(tz=CHICAGO_TZ)).total_seconds() / 3600
+        if 0 <= hours <= URGENT_WINDOW_HOURS:
+            return True, (
+                f"The car must be moved by {_display(move_by)} -- within "
+                f"{int(URGENT_WINDOW_HOURS)} hours."
+            )
+    return False, None
+
+
 def evaluate_parking(request: ParkingRequest, evidence: ParkingEvidence) -> ParkingDecision:
     reasons: list[DecisionReason] = []
     conflicts: list[_Conflict] = []
 
-    for fn in (_residential_reasons, _street_cleaning_reasons, _closure_reasons):
+    for fn in (_residential_reasons, _street_cleaning_reasons, _closure_reasons, _snow_reasons):
         r, c = fn(request, evidence)
         reasons.extend(r)
         conflicts.extend(c)
@@ -181,6 +237,7 @@ def evaluate_parking(request: ParkingRequest, evidence: ParkingEvidence) -> Park
         status = ParkingStatus.LEGAL_UNTIL
         move_by = min(c.move_by for c in limiting)  # type: ignore[type-var]
 
+    urgent, urgent_reason = _urgent_alert(status, move_by)
     return ParkingDecision(
         status=status,
         move_by=move_by,
@@ -189,4 +246,6 @@ def evaluate_parking(request: ParkingRequest, evidence: ParkingEvidence) -> Park
         start_time_display=_display(request.start_time),
         end_time_display=_display(request.end_time),
         move_by_display=_display(move_by) if move_by is not None else None,
+        urgent_alert=urgent,
+        urgent_reason=urgent_reason,
     )

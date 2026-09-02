@@ -10,13 +10,15 @@ from app.models.evidence import (
     EvidenceStatus,
     ParkingEvidence,
     ResidentialZoneEvidence,
+    SnowRouteEvidence,
     StreetCleaningEvidence,
     StreetCleaningWindow,
     TemporaryClosure,
     TemporaryClosureEvidence,
+    WeatherOutlookEvidence,
 )
 from app.models.requests import ParkingRequest
-from app.rules.completeness import check_completeness
+from app.rules.completeness import check_completeness, required_categories
 from app.rules.engine import evaluate_parking
 
 START = datetime(2026, 9, 8, 19, tzinfo=CHICAGO_TZ)
@@ -131,3 +133,70 @@ def test_temporary_closure_blocks():
 def test_completeness_flags_non_verified(status):
     ev = _all_clear_evidence(residential=_res(status=status))
     assert check_completeness(_req(), ev).complete is False
+
+
+# --- snow route ------------------------------------------------------
+
+WINTER_START = datetime(2026, 1, 20, 19, tzinfo=CHICAGO_TZ)
+WINTER_END = datetime(2026, 1, 21, 9, tzinfo=CHICAGO_TZ)
+
+
+def _winter_req():
+    return ParkingRequest(location_id="x", start_time=WINTER_START, end_time=WINTER_END)
+
+
+def _snow(route=True, status=EvidenceStatus.VERIFIED):
+    return SnowRouteEvidence(status=status, is_two_inch_route=route)
+
+
+def test_snow_route_bare_match_is_only_advisory():
+    ev = _all_clear_evidence(snow_route=_snow(route=True))
+    d = evaluate_parking(_winter_req(), ev)
+    assert d.status is ParkingStatus.LEGAL
+    assert any(r.category == "snow_route" and r.verdict == "allows" for r in d.reasons)
+
+
+def test_snow_route_with_verified_2in_forecast_blocks():
+    ev = _all_clear_evidence(
+        snow_route=_snow(route=True),
+        weather=WeatherOutlookEvidence(status=EvidenceStatus.VERIFIED, expected_snow_inches=2.5),
+    )
+    d = evaluate_parking(_winter_req(), ev)
+    assert d.status is ParkingStatus.NOT_LEGAL
+    assert d.urgent_alert is True
+
+
+def test_snow_route_required_in_winter_only():
+    assert "snow_route" in required_categories(_winter_req())
+    assert "snow_route" not in required_categories(_req())
+
+
+def test_winter_request_unknown_when_snow_route_missing():
+    ev = ParkingEvidence(
+        residential=_res(), street_cleaning=_clean(), temporary_closure=_closure()
+    )  # no snow_route, winter interval
+    d = evaluate_parking(_winter_req(), ev)
+    assert d.status is ParkingStatus.UNKNOWN
+    assert any("snow_route" in u for u in d.unknown_reasons)
+
+
+# --- urgent alert ---------------------------------------------------
+
+def test_not_legal_always_urgent():
+    d = evaluate_parking(_req(), _all_clear_evidence(residential=_res(zone="143")))
+    assert d.status is ParkingStatus.NOT_LEGAL
+    assert d.urgent_alert is True
+
+
+def test_far_future_legal_until_is_not_urgent():
+    # move_by years away -> outside the urgent window
+    d = evaluate_parking(_req(), _all_clear_evidence(street_cleaning=_clean([_window(9, 15)])))
+    assert d.status is ParkingStatus.LEGAL_UNTIL
+    assert d.urgent_alert is False
+
+
+def test_legal_has_display_strings_and_no_alert():
+    d = evaluate_parking(_req(), _all_clear_evidence())
+    assert d.status is ParkingStatus.LEGAL
+    assert d.start_time_display and d.end_time_display
+    assert d.urgent_alert is False

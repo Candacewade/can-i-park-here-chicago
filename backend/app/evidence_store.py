@@ -1,20 +1,20 @@
 """Ephemeral, application-controlled evidence store for a single agent run.
 
-Flow:
+Since the 2026-09-01 revision the deterministic core evidence (residential,
+street cleaning, temporary closures, winter snow route) is gathered fresh by
+``rules.gather`` on every evaluation and is *not* kept here. This store holds
+only the **optional** evidence the agent's investigation wing adds:
 
-    agent calls an MCP evidence tool
-        -> the tool fetches authoritative data and normalizes it
-        -> the tool records that typed evidence here under (run_id, category)
-    agent calls evaluate_parking_request
-        -> the evaluator reads the stored evidence back (never from the agent)
-        -> the completeness check sees which required categories are present
+    weather     NWS snow/precip outlook
+    snow_route  a 2-inch-route check the agent ran off-season
+    events      nearby special-event context
+    closure_detail  fuller permit rows for explaining an unusual result
 
-Only the MCP tools write here, and they only write what they themselves fetched
-from the City portal. The agent chooses *which* tools run and with *what*
-location/time arguments, but cannot inject or edit evidence content.
+Only the MCP tools write here, and they only write what they fetched. The agent
+chooses which tools run and with what location/time args; it cannot inject or
+edit evidence content.
 
-No database: a process-local dict with a TTL and a size cap. This state is
-request-scoped and is meant to be lost on restart.
+No database: a process-local dict with a TTL and a size cap.
 """
 
 from __future__ import annotations
@@ -24,16 +24,13 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from app.models.evidence import (
-    ParkingEvidence,
-    ResidentialZoneEvidence,
-    StreetCleaningEvidence,
-    TemporaryClosureEvidence,
-)
+WEATHER = "weather"
+SNOW_ROUTE = "snow_route"
+EVENTS = "events"
+CLOSURE_DETAIL = "closure_detail"
 
-RESIDENTIAL = "residential"
-STREET_CLEANING = "street_cleaning"
-TEMPORARY_CLOSURE = "temporary_closure"
+# Categories that feed the rule engine (the rest are context for the agent only).
+_VERDICT_RELEVANT = (WEATHER, SNOW_ROUTE, EVENTS)
 
 _TTL_SECONDS = 1800.0
 _MAX_RUNS = 256
@@ -43,8 +40,8 @@ _lock = threading.Lock()
 
 @dataclass
 class _Entry:
-    args: dict          # normalized args the tool was called with
-    evidence: object    # a typed *Evidence model
+    args: dict
+    evidence: object
     stored_at: float
 
 
@@ -97,39 +94,33 @@ def record(
         )
 
 
-def _get(
-    run_id: str,
-    category: str,
-    *,
-    location_id: str,
-    start: datetime | None = None,
-    end: datetime | None = None,
-):
+def _get(run_id: str, category: str, expected_args: dict):
     with _lock:
         run = _runs.get(run_id)
         if run is None:
             return None
         entry = run.entries.get(category)
-        if entry is None:
-            return None
-    # Evidence only counts if it was gathered for this exact block (+ interval).
-    if entry.args != _norm_args(location_id, start, end):
+    if entry is None or entry.args != expected_args:
         return None
     return entry.evidence
 
 
-def build_bundle(
+def get(run_id: str, category: str, *, location_id: str, start=None, end=None):
+    return _get(run_id, category, _norm_args(location_id, start, end))
+
+
+def verdict_relevant_evidence(
     run_id: str, *, location_id: str, start: datetime, end: datetime
-) -> ParkingEvidence:
-    """Assemble the evidence the evaluator will use. Missing/mismatched -> None."""
-    res = _get(run_id, RESIDENTIAL, location_id=location_id)
-    clean = _get(run_id, STREET_CLEANING, location_id=location_id, start=start, end=end)
-    closure = _get(run_id, TEMPORARY_CLOSURE, location_id=location_id, start=start, end=end)
-    return ParkingEvidence(
-        residential=res if isinstance(res, ResidentialZoneEvidence) else None,
-        street_cleaning=clean if isinstance(clean, StreetCleaningEvidence) else None,
-        temporary_closure=closure if isinstance(closure, TemporaryClosureEvidence) else None,
-    )
+) -> dict[str, object]:
+    """The agent-added evidence categories the rule engine consumes, for this run
+    + block + interval. Missing / mismatched entries are simply absent."""
+    interval_args = _norm_args(location_id, start, end)
+    out: dict[str, object] = {}
+    for category in _VERDICT_RELEVANT:
+        ev = _get(run_id, category, interval_args)
+        if ev is not None:
+            out[category] = ev
+    return out
 
 
 def clear(run_id: str) -> None:

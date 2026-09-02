@@ -1,11 +1,14 @@
 """Deterministic evidence-completeness check.
 
-This is the safety net that lets the agent genuinely *choose* which tools to
-call: whatever it does, a verdict of LEGAL / NOT_LEGAL / LEGAL_UNTIL is only
-allowed if every safety-required evidence category was actually VERIFIED. A
-required category that is missing, UNAVAILABLE, or UNSUPPORTED forces UNKNOWN
-(unless a different, verified restriction already makes the answer NOT_LEGAL --
-that precedence lives in ``engine.py``).
+A verdict of LEGAL / NOT_LEGAL / LEGAL_UNTIL is only allowed if every
+safety-required evidence category was actually VERIFIED. A required category
+that is missing, UNAVAILABLE, or UNSUPPORTED forces UNKNOWN (unless a verified
+restriction already makes the answer NOT_LEGAL -- that precedence is in
+``engine.py``).
+
+Since the 2026-09-01 revision the required set is season-aware and the core
+categories are always gathered, so "missing" really only happens on a data-source
+failure or an unsupported location.
 """
 
 from __future__ import annotations
@@ -14,19 +17,17 @@ from dataclasses import dataclass, field
 
 from app.models.evidence import EvidenceStatus, ParkingEvidence
 from app.models.requests import ParkingRequest
+from app.services.snow_routes import in_overnight_ban_period
 
-# Categories that must be verified before we may tell someone they can park.
-# Every one of these can independently produce a ticket in Chicago.
 _ALWAYS_REQUIRED = ("residential", "street_cleaning", "temporary_closure")
 
 
 def required_categories(request: ParkingRequest) -> tuple[str, ...]:
-    """Which evidence categories must be VERIFIED for this request.
-
-    Currently fixed. Kept as a function so future rules can make it depend on the
-    request (e.g. add 'snow_route' only in winter, 'meter' only downtown).
-    """
-    return _ALWAYS_REQUIRED
+    """Which evidence categories must be VERIFIED for this request."""
+    required = list(_ALWAYS_REQUIRED)
+    if in_overnight_ban_period(request.start_time) or in_overnight_ban_period(request.end_time):
+        required.append("snow_route")
+    return tuple(required)
 
 
 @dataclass
