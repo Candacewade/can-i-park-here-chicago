@@ -50,6 +50,11 @@ health check `/api/health`). In the dashboard set the `sync: false` values:
 `VITE_API_URL` = the Render URL. Deploy; note the `*.vercel.app` URL, then set
 Render's `FRONTEND_ORIGINS` to it and let Render redeploy.
 
+> **Node version.** The frontend needs **Node ≥ 22.6** (jsdom 30 → undici 8 uses
+> `worker_threads.markAsUncloneable`, added in 22.6). Pinned in `frontend/.nvmrc`
+> (`24`) with `engines.node` in `frontend/package.json`; CI reads the `.nvmrc`,
+> and Vercel honours `engines.node`. Locally: `cd frontend && nvm use`.
+
 **6. Verify.** `GET <render>/api/health` → `{"status":"ok","agent_available":false}`.
 Open the Vercel URL, enter an address (e.g. `2400 N Clark St`, `60614`), confirm
 the block + side, run the check — a `LEGAL / NOT_LEGAL / LEGAL_UNTIL / UNKNOWN`
