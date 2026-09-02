@@ -94,7 +94,9 @@ reminders at **T‑3 days** and the **night before**. See `docs/monitoring.md`.
   + FastAPI `/analyze` + React structured-selector UI + result UI
 * **Slice 4** ✅ proactive monitoring (watches, daily + hourly scheduled runs,
   email, deterministic urgent alerts, reminders)
-* **Slice 5** address-based location layer (below) + deploy + polish
+* **Slice 5** ✅ address-based location layer (below); private data repo;
+  `render.yaml` + `frontend/vercel.json` + deploy checklist; CI covers frontend
+* **Slice 6** agent evaluation suite -- `docs/evaluations.md`
 
 ## Location UX change (Slice 5) — exact address, not dropdowns
 

@@ -10,6 +10,34 @@ Target: **$0/month** beyond the existing Claude Pro subscription.
 | **Runtime user data** | a **separate private GitHub repo** | watches / resolved blocks / notify map — never in this public repo |
 | Fast test suite | GitHub Actions on push/PR | agent evals stay manual |
 
+## Deploy — step by step
+
+**1. Private data repo** (once). Create `<you>/can-i-park-here-chicago-data`
+(private, empty). Create a **fine-grained PAT**: repo access = *only that repo*,
+permissions = **Contents: Read and write**. Keep the token.
+
+**2. Backend → Render.** New → **Blueprint** → point at this repo; `render.yaml`
+defines a free Python web service (`rootDir: backend`, `pip install -e .`,
+`uvicorn ...`, health check `/api/health`). In the dashboard set:
+`FRONTEND_ORIGINS`, `GH_DATA_REPO`, `GH_DATA_TOKEN` (and optionally
+`GMAIL_SENDER` / `GMAIL_APP_PASSWORD`, `MONITOR_TOKEN`). **Do not** set
+`ANTHROPIC_API_KEY`. Note the service URL.
+
+**3. Frontend → Vercel.** New Project → this repo → **Root Directory = `frontend`**
+(`vercel.json` sets the rest). Env var `VITE_API_URL` = the Render URL. Deploy;
+note the `*.vercel.app` URL and put it in Render's `FRONTEND_ORIGINS`.
+
+**4. Scheduled monitor** (GitHub Actions, already in the repo). Add repo secrets:
+`GH_DATA_REPO`, `GH_DATA_TOKEN`, `GMAIL_SENDER`, `GMAIL_APP_PASSWORD`, and
+optionally `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token` — subscription,
+not an API key). `.github/workflows/{monitor,urgent}.yml` then run on schedule.
+
+**5. Verify.** `GET <render>/api/health` → `{"status":"ok"}`. Open the Vercel URL,
+resolve an address, run a check (`/api/parking/analyze` returns **503** on Render
+— expected: no Claude CLI there; the deterministic path still works everywhere
+else). Trigger `monitor.yml` manually (`workflow_dispatch`) and confirm it writes
+to the private data repo.
+
 ## Runtime user data — the private data repo
 
 Resolved addresses, parked-car watches, and notification state are user data.

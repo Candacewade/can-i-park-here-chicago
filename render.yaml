@@ -1,0 +1,41 @@
+# Render Blueprint -- one free web service: FastAPI + agent + MCP + rule engine.
+# Deploy: https://render.com -> New -> Blueprint -> point at this repo.
+# Set the `sync: false` values in the Render dashboard (they are secrets / URLs).
+#
+# Budget: Render Free ($0). Cold starts after idle are accepted.
+services:
+  - type: web
+    name: can-i-park-here-chicago
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -e .
+    startCommand: uvicorn app.api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      # Comma-separated production frontend origin(s). Any *.vercel.app preview
+      # is already allowed by a regex in app/api/main.py.
+      - key: FRONTEND_ORIGINS
+        sync: false
+      # Private data repo (watches / resolved blocks / notify map). See
+      # docs/deployment.md. Without these the API uses an ephemeral local dir.
+      - key: GH_DATA_REPO
+        sync: false
+      - key: GH_DATA_TOKEN
+        sync: false
+      # Email (optional here -- the scheduled workflows are the main sender).
+      - key: GMAIL_SENDER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      # Optional. Guards POST /api/monitor/run.
+      - key: MONITOR_TOKEN
+        sync: false
+      # We deliberately do NOT set ANTHROPIC_API_KEY. The Claude Agent SDK needs
+      # the Claude Code CLI for subscription auth, which is not present on Render,
+      # so POST /api/parking/analyze returns 503 there (see docs/deployment.md).
+      # A future option: install @anthropic-ai/claude-code + set
+      # CLAUDE_CODE_OAUTH_TOKEN.
