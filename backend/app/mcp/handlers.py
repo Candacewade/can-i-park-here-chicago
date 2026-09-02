@@ -1,16 +1,15 @@
 """Plain-function implementations behind the MCP tools.
 
 Kept separate from ``server.py`` so they are directly unit-testable without an
-MCP session. Each evidence handler:
+MCP session.
 
-  1. fetches authoritative data via a service client,
-  2. records the normalized typed evidence in ``evidence_store`` under the
-     caller's run_id, and
-  3. returns the same evidence as JSON for the agent to read.
-
-``evaluate_parking_request`` never re-fetches and never trusts agent-relayed
-data: it reads the stored evidence for the run and hands it to the deterministic
-rule engine.
+Since the 2026-09-01 revision the deterministic core (residential, street
+cleaning, temporary closures, winter snow route) is gathered by ``rules.gather``
+inside ``evaluate_parking_request`` on every call -- there are no agent tools for
+it. These handlers are the agent's *investigation* surface: weather, snow-route
+membership, nearby events, closure detail, and alternative parking. Investigation
+tools persist their output in ``evidence_store`` under the run's run_id;
+``evaluate_parking_request`` merges the verdict-relevant ones and re-evaluates.
 """
 
 from __future__ import annotations
@@ -19,13 +18,16 @@ from datetime import datetime
 
 from app import evidence_store
 from app.config import CHICAGO_TZ
-from app.locations.registry import LocationNotFoundError, get_location
+from app.locations.registry import LocationNotFoundError, get_location, list_locations
 from app.models.requests import ParkingRequest
 from app.rules.completeness import check_completeness
 from app.rules.engine import evaluate_parking
-from app.services.residential_zones import get_residential_zone_evidence
-from app.services.street_cleaning import get_street_cleaning_evidence
+from app.rules.gather import gather_evidence
+from app.rules.nearby import find_legal_parking_nearby
+from app.services.events import get_nearby_events
+from app.services.snow_routes import get_snow_route_evidence
 from app.services.street_closures import get_street_closure_evidence
+from app.services.weather import get_weather_outlook as _weather_svc
 
 _NULLISH = {"", "none", "null", "n/a"}
 
@@ -37,6 +39,12 @@ def _parse_dt(value: str) -> datetime:
     return dt
 
 
+def _clean_permit(permit_zone: str | None) -> str | None:
+    return None if (permit_zone or "").strip().lower() in _NULLISH else permit_zone
+
+
+# --- context ---------------------------------------------------------
+
 def get_location_context(location_id: str) -> dict:
     try:
         loc = get_location(location_id)
@@ -46,8 +54,6 @@ def get_location_context(location_id: str) -> dict:
 
 
 def list_supported_locations() -> dict:
-    from app.locations.registry import list_locations
-
     return {
         "locations": [
             {"location_id": loc.location_id, "summary": loc.human_summary()}
@@ -56,19 +62,9 @@ def list_supported_locations() -> dict:
     }
 
 
-def get_residential_restrictions(run_id: str, location_id: str) -> dict:
-    try:
-        loc = get_location(location_id)
-    except LocationNotFoundError as exc:
-        return {"status": "UNSUPPORTED", "error": str(exc)}
-    evidence = get_residential_zone_evidence(loc)
-    evidence_store.record(
-        run_id, evidence_store.RESIDENTIAL, location_id=location_id, evidence=evidence
-    )
-    return evidence.model_dump(mode="json")
+# --- investigation (store + return) ---------------------------------
 
-
-def get_street_cleaning_restrictions(
+def get_weather_outlook(
     run_id: str, location_id: str, start_time: str, end_time: str
 ) -> dict:
     try:
@@ -79,17 +75,58 @@ def get_street_cleaning_restrictions(
         start, end = _parse_dt(start_time), _parse_dt(end_time)
     except ValueError as exc:
         return {"status": "UNAVAILABLE", "error": f"bad datetime: {exc}"}
-    evidence = get_street_cleaning_evidence(loc, start, end)
+    evidence = _weather_svc(loc.latitude, loc.longitude, start, end)
     evidence_store.record(
-        run_id, evidence_store.STREET_CLEANING,
+        run_id, evidence_store.WEATHER,
         location_id=location_id, evidence=evidence, start=start, end=end,
     )
     return evidence.model_dump(mode="json")
 
 
-def get_temporary_closures(
+def get_snow_route_status(
     run_id: str, location_id: str, start_time: str, end_time: str
 ) -> dict:
+    try:
+        loc = get_location(location_id)
+    except LocationNotFoundError as exc:
+        return {"status": "UNSUPPORTED", "error": str(exc)}
+    try:
+        start, end = _parse_dt(start_time), _parse_dt(end_time)
+    except ValueError as exc:
+        return {"status": "UNAVAILABLE", "error": f"bad datetime: {exc}"}
+    evidence = get_snow_route_evidence(loc, start, end)
+    evidence_store.record(
+        run_id, evidence_store.SNOW_ROUTE,
+        location_id=location_id, evidence=evidence, start=start, end=end,
+    )
+    return evidence.model_dump(mode="json")
+
+
+def get_nearby_events_tool(
+    run_id: str, location_id: str, start_time: str, end_time: str
+) -> dict:
+    try:
+        loc = get_location(location_id)
+    except LocationNotFoundError as exc:
+        return {"status": "UNSUPPORTED", "error": str(exc)}
+    try:
+        start, end = _parse_dt(start_time), _parse_dt(end_time)
+    except ValueError as exc:
+        return {"status": "UNAVAILABLE", "error": f"bad datetime: {exc}"}
+    evidence = get_nearby_events(loc, start, end)
+    evidence_store.record(
+        run_id, evidence_store.EVENTS,
+        location_id=location_id, evidence=evidence, start=start, end=end,
+    )
+    return evidence.model_dump(mode="json")
+
+
+def get_closure_detail(
+    run_id: str, location_id: str, start_time: str, end_time: str
+) -> dict:
+    """Every public-way permit on the block (all work types), for explaining an
+    unusual result. Not verdict-relevant (the core already handles parking-impact
+    closures); stored for tracing only."""
     try:
         loc = get_location(location_id)
     except LocationNotFoundError as exc:
@@ -100,11 +137,30 @@ def get_temporary_closures(
         return {"status": "UNAVAILABLE", "error": f"bad datetime: {exc}"}
     evidence = get_street_closure_evidence(loc, start, end)
     evidence_store.record(
-        run_id, evidence_store.TEMPORARY_CLOSURE,
+        run_id, evidence_store.CLOSURE_DETAIL,
         location_id=location_id, evidence=evidence, start=start, end=end,
     )
     return evidence.model_dump(mode="json")
 
+
+def find_legal_parking_nearby_tool(
+    run_id: str,
+    location_id: str,
+    start_time: str,
+    end_time: str,
+    permit_zone: str | None = None,
+) -> dict:
+    try:
+        start, end = _parse_dt(start_time), _parse_dt(end_time)
+    except ValueError as exc:
+        return {"error": f"bad datetime: {exc}", "options": []}
+    options = find_legal_parking_nearby(
+        location_id, start, end, _clean_permit(permit_zone)
+    )
+    return {"options": [o.__dict__ for o in options]}
+
+
+# --- the deterministic verdict -------------------------------------
 
 def evaluate_parking_request(
     run_id: str,
@@ -113,24 +169,31 @@ def evaluate_parking_request(
     end_time: str,
     permit_zone: str | None = None,
 ) -> dict:
-    if (permit_zone or "").strip().lower() in _NULLISH:
-        permit_zone = None
     try:
         request = ParkingRequest(
             location_id=location_id,
             start_time=_parse_dt(start_time),
             end_time=_parse_dt(end_time),
-            permit_zone=permit_zone,
+            permit_zone=_clean_permit(permit_zone),
         )
     except ValueError as exc:
         return {"decision": {"status": "UNKNOWN"}, "error": f"invalid request: {exc}"}
 
-    evidence = evidence_store.build_bundle(
+    evidence = gather_evidence(request)  # deterministic core, ALWAYS
+
+    optional = evidence_store.verdict_relevant_evidence(
         run_id,
         location_id=request.location_id,
         start=request.start_time,
         end=request.end_time,
     )
+    if evidence_store.WEATHER in optional:
+        evidence.weather = optional[evidence_store.WEATHER]
+    if evidence_store.EVENTS in optional:
+        evidence.events = optional[evidence_store.EVENTS]
+    if evidence.snow_route is None and evidence_store.SNOW_ROUTE in optional:
+        evidence.snow_route = optional[evidence_store.SNOW_ROUTE]
+
     decision = evaluate_parking(request, evidence)
     completeness = check_completeness(request, evidence)
     return {

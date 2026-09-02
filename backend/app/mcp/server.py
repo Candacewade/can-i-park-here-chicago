@@ -2,23 +2,17 @@
 
 Run directly for the agent to spawn:  python -m app.mcp.server
 
-Exposes a fixed toolbox. Every tool does one clear thing, takes a canonical
-``location_id`` (never a free-text address), and returns typed JSON. Any
-data-source failure becomes an explicit UNAVAILABLE / UNSUPPORTED status.
-No generic HTTP, filesystem, or shell capability is exposed.
+Since the 2026-09-01 revision the deterministic core (residential, street
+cleaning, temporary closures, winter snow route) is gathered before the agent
+runs and handed to it as context -- there are no agent tools for it. This
+toolbox is the agent's **investigation + re-evaluation** surface.
 
-Orchestration model:
-  * every tool takes a ``run_id``; the evidence tools store their authoritative
-    normalized output server-side under that run_id (see app.evidence_store).
-  * ``evaluate_parking_request`` reads those stored outputs -- it does not
-    re-fetch and does not trust anything the agent relays.
-  * the deterministic completeness check then requires that every safety
-    category was actually gathered and VERIFIED, else the verdict is UNKNOWN.
+Every tool takes the request's ``run_id``. Investigation tools persist their
+output in ``app.evidence_store`` under it; ``evaluate_parking_request`` re-runs
+the deterministic pipeline (core gather always + the merged optional evidence).
 
-The descriptions say what each tool answers and when it is relevant; they do not
-script a call order. The agent chooses which evidence to gather.
-
-Implementations live in app.mcp.handlers (unit-testable without a session).
+No generic HTTP, filesystem, or shell capability is exposed. Implementations live
+in ``app.mcp.handlers``.
 """
 
 from __future__ import annotations
@@ -29,22 +23,22 @@ from app.mcp import handlers
 
 mcp = MCPServer(
     name="chicago-parking",
-    version="0.3.0",
+    version="0.4.0",
     instructions=(
-        "Authoritative Chicago parking evidence and the deterministic evaluator. "
-        "Pass the request's run_id to every tool. Gather the evidence the request "
-        "needs, then call evaluate_parking_request for the official decision. An "
-        "UNAVAILABLE or UNSUPPORTED result never means 'no restriction'."
+        "Investigate a Chicago parking situation. The deterministic decision and "
+        "core evidence are already in your context. Use these tools only when the "
+        "situation warrants extra digging (winter/snow, nearby events, an unusual "
+        "closure, or the user asking where to move), then call "
+        "evaluate_parking_request to fold in what you found. Pass the run_id to "
+        "every tool. An UNAVAILABLE result never means 'no risk'."
     ),
 )
 
 
 @mcp.tool(
     description=(
-        "Resolve a canonical location_id to its Chicago block: street, cross "
-        "streets, side, neighborhood, address range, and the ward/section used for "
-        "street cleaning. Use it to confirm you have the right block. An unknown "
-        "id means the location is outside supported Chicago coverage."
+        "Resolve a canonical location_id to its Chicago block (street, cross "
+        "streets, side, neighborhood, coordinates). Use to confirm the block."
     )
 )
 def get_location_context(location_id: str) -> dict:
@@ -53,62 +47,83 @@ def get_location_context(location_id: str) -> dict:
 
 @mcp.tool(
     description=(
-        "Residential permit-parking status for this block+side, from the City of "
-        "Chicago 'Permit Parking Zones' dataset. Returns the permit zone required "
-        "to park here (null if the block is not in a residential zone), whether it "
-        "is a buffer segment, and a VERIFIED / UNAVAILABLE / UNSUPPORTED status. "
-        "Relevant when the block might be in a residential zone or when the request "
-        "carries a permit_zone. Pass the request's run_id."
+        "US National Weather Service snow / precipitation outlook for this block "
+        "over the interval: expected snowfall (inches) and max precip probability. "
+        "A forecast, not a fact. Relevant when the interval is in winter or snow "
+        "is plausible -- especially if the block is a 2-inch snow route. Times are "
+        "ISO-8601 with offset. Pass the run_id."
     )
 )
-def get_residential_restrictions(run_id: str, location_id: str) -> dict:
-    return handlers.get_residential_restrictions(run_id, location_id)
+def get_weather_outlook(run_id: str, location_id: str, start_time: str, end_time: str) -> dict:
+    return handlers.get_weather_outlook(run_id, location_id, start_time, end_time)
 
 
 @mcp.tool(
     description=(
-        "Scheduled street-cleaning (street sweeping) windows for this block that "
-        "overlap the given interval, from the City of Chicago 2026 Street Sweeping "
-        "Schedule. Returns each window (date; hours assumed 09:00-15:00) plus a "
-        "VERIFIED / UNAVAILABLE / UNSUPPORTED status. Times are ISO-8601 with "
-        "offset. Relevant whenever the interval could reach a daytime hour on a "
-        "day the block is swept. Pass the request's run_id."
+        "Whether this block is on a City of Chicago 2-inch snow route (parking "
+        "banned once 2+ inches accumulate) and whether the interval is in the "
+        "Dec 1 - Apr 1 overnight-ban season. Pair with get_weather_outlook to "
+        "judge real risk. Pass the run_id."
     )
 )
-def get_street_cleaning_restrictions(
-    run_id: str, location_id: str, start_time: str, end_time: str
+def get_snow_route_status(run_id: str, location_id: str, start_time: str, end_time: str) -> dict:
+    return handlers.get_snow_route_status(run_id, location_id, start_time, end_time)
+
+
+@mcp.tool(
+    description=(
+        "Permitted special events (festival, parade, athletic, filming, ...) near "
+        "this block during the interval, from the City transportation-permits "
+        "dataset. Context only -- crowds and congestion; events that actually "
+        "close the street are already in the core decision. Pass the run_id."
+    )
+)
+def get_nearby_events(run_id: str, location_id: str, start_time: str, end_time: str) -> dict:
+    return handlers.get_nearby_events_tool(run_id, location_id, start_time, end_time)
+
+
+@mcp.tool(
+    description=(
+        "Every public-way permit on this block during the interval, including "
+        "non-parking work types, with full detail. Use to explain an unusual or "
+        "severe temporary-closure result to the user. Pass the run_id."
+    )
+)
+def get_closure_detail(run_id: str, location_id: str, start_time: str, end_time: str) -> dict:
+    return handlers.get_closure_detail(run_id, location_id, start_time, end_time)
+
+
+@mcp.tool(
+    description=(
+        "Deterministic: nearby supported blocks that evaluate to LEGAL or "
+        "LEGAL_UNTIL for the same interval and permit, nearest first (distance + "
+        "walk time). Call when the user asks where to move or when the decision "
+        "is NOT_LEGAL / LEGAL_UNTIL and an alternative would help. permit_zone is "
+        "optional. Pass the run_id."
+    )
+)
+def find_legal_parking_nearby(
+    run_id: str,
+    location_id: str,
+    start_time: str,
+    end_time: str,
+    permit_zone: str | None = None,
 ) -> dict:
-    return handlers.get_street_cleaning_restrictions(run_id, location_id, start_time, end_time)
-
-
-@mcp.tool(
-    description=(
-        "Temporary street-closure and public-way permits (construction, work "
-        "zones, utility openings, block parties) that would remove on-street "
-        "parking on this block during the interval, from the City of Chicago "
-        "transportation-permits dataset. Returns each overlapping permit plus a "
-        "VERIFIED / UNAVAILABLE status. Useful for ruling out a short-notice "
-        "closure the recurring schedules would not show. Pass the request's run_id."
+    return handlers.find_legal_parking_nearby_tool(
+        run_id, location_id, start_time, end_time, permit_zone
     )
-)
-def get_temporary_closures(
-    run_id: str, location_id: str, start_time: str, end_time: str
-) -> dict:
-    return handlers.get_temporary_closures(run_id, location_id, start_time, end_time)
 
 
 @mcp.tool(
     description=(
-        "The official deterministic parking decision for this request. It reads "
-        "the evidence that the other tools stored for this run_id (it does not "
-        "re-fetch and does not accept evidence from you), runs a completeness "
-        "check, and returns a ParkingDecision: status LEGAL / NOT_LEGAL / "
-        "LEGAL_UNTIL / UNKNOWN, an optional move_by, the reasons, any unverified "
-        "categories, and start_time_display / end_time_display / move_by_display "
-        "(America/Chicago). If a required evidence tool was not run for this "
-        "run_id, that category is missing and the status is UNKNOWN. Call this "
-        "once you have gathered what the request needs. permit_zone is optional; "
-        "times are ISO-8601 with offset. Pass the request's run_id."
+        "The official deterministic parking decision. Re-runs the pipeline: the "
+        "required core gather (always) + the verdict-relevant evidence your "
+        "investigation tools stored for this run_id, then completeness + engine. "
+        "Returns ParkingDecision (status LEGAL / NOT_LEGAL / LEGAL_UNTIL / "
+        "UNKNOWN, move_by, start_time_display / end_time_display / "
+        "move_by_display, urgent_alert, reasons, unknown_reasons). You cannot "
+        "compute or override this. permit_zone optional; times ISO-8601 + offset. "
+        "Pass the run_id."
     )
 )
 def evaluate_parking_request(
@@ -125,9 +140,8 @@ def evaluate_parking_request(
 
 @mcp.tool(
     description=(
-        "List every canonical location_id currently supported, with a short human "
-        "description. Use only to discover valid ids; normally the location_id is "
-        "supplied in the request."
+        "List every canonical location_id currently supported. Use only to "
+        "discover valid ids."
     )
 )
 def list_supported_locations() -> dict:
