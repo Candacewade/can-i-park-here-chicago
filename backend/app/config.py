@@ -107,32 +107,31 @@ def resolve_claude_cli() -> str | None:
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 LOCATIONS_FIXTURE_PATH = BACKEND_ROOT / "app" / "locations" / "fixtures.json"
-# Self-populating resolved-block registry (grows as addresses are looked up).
-BLOCKS_FILE = Path(
-    os.environ.get("BLOCKS_FILE", str(BACKEND_ROOT / "app" / "locations" / "blocks.json"))
-)
 
-# --- Proactive monitoring (Slice 4) ----------------------------------
+# --- Runtime user data: NEVER in the public code repo ----------------
+#
+# Resolved addresses, parked-car watches, and notification state are user data.
+# In production they live in a SEPARATE PRIVATE GitHub repo, written through the
+# same Contents API (see docs/deployment.md). Locally they fall back to a
+# git-ignored directory. Nothing here is committed to this public repo.
 
-# Watch state (NO personally identifying info) -- committed to the repo.
-WATCHES_FILE = Path(os.environ.get("WATCHES_FILE", str(BACKEND_ROOT / "watches.json")))
+# The private data repo (unlimited + free on GitHub Free). A fine-grained PAT
+# scoped to Contents: read/write on this one repo.
+GH_DATA_REPO = os.environ.get("GH_DATA_REPO") or None            # "owner/<data-repo>"
+GH_DATA_TOKEN = os.environ.get("GH_DATA_TOKEN") or None
+GH_DATA_BRANCH = os.environ.get("GH_DATA_BRANCH", "main")
 
-# Notification destinations (the PII). In production: WATCH_NOTIFY_MAP env, a JSON
-# object {watch_id: {"email": "..."}}, held as a GitHub Actions secret. In local
-# dev: a git-ignored file the API may also write.
+# Local fallback directory when no PAT is configured (git-ignored).
+LOCAL_DATA_DIR = Path(os.environ.get("LOCAL_DATA_DIR", str(BACKEND_ROOT / ".data")))
+
+# File names inside the private repo / the local data dir.
+WATCHES_DATA_NAME = "watches.json"
+BLOCKS_DATA_NAME = "blocks.json"
+NOTIFY_DATA_NAME = "notify_map.json"
+
+# Optional seed/override for the notify map (a GitHub Actions secret). Merged on
+# top of whatever is in the private data repo.
 WATCH_NOTIFY_MAP = os.environ.get("WATCH_NOTIFY_MAP") or ""
-NOTIFY_MAP_LOCAL_FILE = Path(
-    os.environ.get("NOTIFY_MAP_LOCAL_FILE", str(BACKEND_ROOT / "notify_map.local.json"))
-)
-
-# GitHub contents-API store for watches.json (used when the API runs somewhere
-# without a durable filesystem, e.g. Render). Falls back to the local file.
-GH_WATCHES_REPO = os.environ.get("GH_WATCHES_REPO") or None      # "owner/repo"
-GH_WATCHES_TOKEN = os.environ.get("GH_WATCHES_TOKEN") or None
-GH_WATCHES_BRANCH = os.environ.get("GH_WATCHES_BRANCH", "main")
-GH_WATCHES_PATH = os.environ.get("GH_WATCHES_PATH", "backend/watches.json")
-# The blocks.json location cache uses the same repo/token (a different path).
-GH_BLOCKS_PATH = os.environ.get("GH_BLOCKS_PATH", "backend/app/locations/blocks.json")
 
 # Email (Gmail SMTP via an app password). No secret -> emails are written to
 # OUTBOX_DIR instead of sent.

@@ -17,9 +17,13 @@ dist/
 .env.local
 *.local
 
-# Monitoring: PII map (never committed) and rendered emails
-backend/notify_map.local.json
+# Runtime user data — watches, resolved addresses, notification map, emails.
+# In production these live in a SEPARATE PRIVATE repo; locally, here.
+backend/.data/
 backend/outbox/
+backend/notify_map.local.json
+backend/watches.json
+backend/app/locations/blocks.json
 
 # Node / frontend
 node_modules/

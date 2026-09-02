@@ -1,24 +1,28 @@
-"""watch_id -> notification destination. This is where the PII lives.
+"""watch_id -> notification destination (the email). User data.
 
-Production: the ``WATCH_NOTIFY_MAP`` env var (a JSON object), held as a GitHub
-Actions secret and never committed. Local dev: a git-ignored JSON file that the
-API may also write when someone registers a watch.
+Stored in the **private data repo** (``notify_map.json``) via the Contents API,
+or a git-ignored local file in dev. An optional ``WATCH_NOTIFY_MAP`` env secret is
+merged on top (seed / override). Never in the public code repo.
 """
 
 from __future__ import annotations
 
 import json
 
-from app.config import NOTIFY_MAP_LOCAL_FILE, WATCH_NOTIFY_MAP
+from app.config import NOTIFY_DATA_NAME, WATCH_NOTIFY_MAP
+from app.json_store import data_store
+
+
+def _store():
+    return data_store(NOTIFY_DATA_NAME)
 
 
 def _load_map() -> dict[str, dict]:
     combined: dict[str, dict] = {}
-    if NOTIFY_MAP_LOCAL_FILE.exists():
-        try:
-            combined.update(json.loads(NOTIFY_MAP_LOCAL_FILE.read_text() or "{}"))
-        except (ValueError, OSError):
-            pass
+    try:
+        combined.update(_store().load())
+    except Exception:
+        pass
     if WATCH_NOTIFY_MAP:
         try:
             combined.update(json.loads(WATCH_NOTIFY_MAP))
@@ -33,25 +37,23 @@ def get_email(watch_id: str) -> str | None:
 
 
 def register_email(watch_id: str, email: str) -> bool:
-    """Best-effort: write to the local map file. Returns False if not writable
-    (e.g. on Render) -- the operator then adds the entry to the secret."""
+    """Persist watch_id -> {email} in the private data store. Returns False only
+    if the write fails (the operator can then add it to WATCH_NOTIFY_MAP)."""
     try:
-        current: dict[str, dict] = {}
-        if NOTIFY_MAP_LOCAL_FILE.exists():
-            current = json.loads(NOTIFY_MAP_LOCAL_FILE.read_text() or "{}")
+        store = _store()
+        current = store.load()
         current[watch_id] = {"email": email}
-        NOTIFY_MAP_LOCAL_FILE.parent.mkdir(parents=True, exist_ok=True)
-        NOTIFY_MAP_LOCAL_FILE.write_text(json.dumps(current, indent=2) + "\n")
+        store.save(current)
         return True
-    except OSError:
+    except Exception:
         return False
 
 
 def forget(watch_id: str) -> None:
     try:
-        if NOTIFY_MAP_LOCAL_FILE.exists():
-            current = json.loads(NOTIFY_MAP_LOCAL_FILE.read_text() or "{}")
-            current.pop(watch_id, None)
-            NOTIFY_MAP_LOCAL_FILE.write_text(json.dumps(current, indent=2) + "\n")
-    except (ValueError, OSError):
+        store = _store()
+        current = store.load()
+        if current.pop(watch_id, None) is not None:
+            store.save(current)
+    except Exception:
         pass

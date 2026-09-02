@@ -225,7 +225,7 @@ def create_watch(payload: CreateWatchRequest) -> CreateWatchResponse:
         "Email registered for notifications."
         if registered
         else (
-            "Watch created, but this environment cannot store the email. An "
+            "Watch created, but the private data store could not be written. An "
             f"operator must add {{\"{watch.watch_id}\": {{\"email\": \"...\"}}}} to "
             "the WATCH_NOTIFY_MAP secret before notifications will send."
         )

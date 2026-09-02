@@ -81,14 +81,17 @@ watch stores the confirmed side. We never silently guess.
 `get_location(location_id)`:
 
 1. in-process cache
-2. `blocks.json` — the self-populating registry (file locally / the GitHub
-   contents API on Render, same pattern as `watches.json`), committed to the repo
+2. `blocks.json` — the self-populating registry. It is **user data** (which
+   blocks people looked up), so it lives in the **private data repo**
+   (`app/json_store.py:data_store`), or a git-ignored `backend/.data/` file
+   locally. Never in the public repo.
 3. on a miss: parse the `location_id` → synthesize a representative address →
-   run `resolve_address` → write the result to `blocks.json`
-4. `fixtures.json` — a handful of hand-written blocks kept for tests
+   run `resolve_address` → write the result to the private `blocks.json`
+4. `fixtures.json` — a handful of hand-written blocks kept for tests (non-user)
 
-So the "citywide registry" is not a giant pre-generated file — it is a cache that
-fills in as real addresses are looked up, backed by live official geometry.
+So the "citywide registry" is not a giant pre-generated file — it is a private
+cache that fills in as real addresses are looked up, backed by live official
+geometry.
 
 ## Cross-dataset association
 

@@ -76,10 +76,12 @@ reminders at **T‑3 days** and the **night before**. See `docs/monitoring.md`.
   — a subscription token, **not** an API key) as a repo secret. Absent ⇒
   `--no-agent`: deterministic templates, alerts still fire. Never
   `ANTHROPIC_API_KEY`.
-* **Persistence:** `backend/watches.json` — anonymous `watch_id`s + state only,
-  **no PII**. Committed by the workflow (`GITHUB_TOKEN`) or written via the
-  GitHub contents API from the Render service. The `watch_id → email` map is the
-  `WATCH_NOTIFY_MAP` secret / a git-ignored dev file.
+* **Persistence:** all runtime user data (`watches.json`, resolved-address
+  `blocks.json`, `notify_map.json`) lives in a **separate PRIVATE GitHub repo**,
+  written through the same Contents API (`app/json_store.py:data_store`).
+  **Nothing user-specific is ever committed to this public repo.** Local dev
+  falls back to a git-ignored `backend/.data/`. GitHub Free = unlimited private
+  repos; the workflows run in the public repo (free minutes). Still $0.
 * **Email:** Gmail SMTP via an app-password secret (`smtplib`); no creds ⇒
   `backend/outbox/`.
 * Still **$0/month**, no database, no paid SaaS.

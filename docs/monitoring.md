@@ -10,35 +10,41 @@ email, urgent alerts when a time-sensitive risk appears, and move reminders.
 
 | field | |
 |---|---|
-| `watch_id` | stable, anonymous — `wch_<12 hex>` — **the only identifier in the repo** |
+| `watch_id` | stable, anonymous — `wch_<12 hex>` |
 | `location_id`, `start_time`, `end_time`, `permit_zone` | the request to monitor |
 | `status` | `active` / `resolved` (moved / cancelled) / `expired` (`end_time` passed) |
 | `created_at`, `last_decision`, `last_checked_at` | |
 | `notified` | keys of messages already sent: `morning:<date>`, `urgent:<cause-hash>`, `reminder:3d`, `reminder:night` |
 
-## Persistence — `$0`, no database, **no PII in the repo**
+## Persistence — `$0`, no database, **no user data in the public repo**
 
-| what | where |
+All runtime user data lives in a **separate private GitHub repo**
+(`<you>/can-i-park-here-chicago-data`), written through the same
+`GitHubJsonStore` Contents API. Setup: [deployment.md](deployment.md).
+
+| file (in the private repo) | contents |
 |---|---|
-| watch state (the fields above, **no email**) | `backend/watches.json`, committed to the repo |
-| `watch_id → {email}` map | `WATCH_NOTIFY_MAP` GitHub Actions **secret** (JSON), or a git-ignored `backend/notify_map.local.json` in dev — never committed |
-| Gmail app password | `GMAIL_APP_PASSWORD` secret |
+| `watches.json` | anonymous `watch_id` + block + interval + `status` + `notified` (no email) |
+| `blocks.json` | resolved-address cache (`location_id` → block) |
+| `notify_map.json` | `watch_id → {email}` |
 
-`app/monitor/store.py` picks a backend by env: `FileWatchStore` (a checkout — the
-scheduled job, local dev) or `GitHubWatchStore` (the contents API — for the
-FastAPI service on Render, which has no durable disk).
+`app/json_store.py:data_store(name)` picks the backend: `GitHubJsonStore` (the
+private repo, when `GH_DATA_REPO` + `GH_DATA_TOKEN` are set) or `FileJsonStore`
+(a git-ignored `backend/.data/` dir, local dev). The public code repo keeps only
+code + `fixtures.json` (test-only) + non-user geographic assets.
 
-`POST /api/watches` creates the watch (state) and tries to register the email in
-the local map. Where that isn't writable (Render), it returns
-`email_registered: false` and a note: an operator must add the `watch_id → email`
-entry to the `WATCH_NOTIFY_MAP` secret before notifications send. The monitor
-still evaluates a watch with no destination — it just doesn't email.
+`POST /api/watches` writes the watch and the email straight into the private
+repo — it works on Render now. If that write fails it returns
+`email_registered: false`; the monitor still evaluates a watch with no
+destination, it just doesn't email.
 
 ## Two scheduled workflows
 
-Render Free has no cron, so both run in GitHub Actions. They share a
-`concurrency: group: parking-monitor`, so they never overlap (both mutate
-`backend/watches.json` and commit it back).
+Render Free has no cron, so both run in GitHub Actions (in this **public** repo →
+free minutes). They share a `concurrency: group: parking-monitor`, so runs never
+overlap on the private data files. The workflows write **nothing** to the public
+repo — no `contents: write`, no commit step; state goes to the private repo via
+`GH_DATA_TOKEN`.
 
 | workflow | cron | mode | agent |
 |---|---|---|---|
@@ -76,7 +82,7 @@ Per active watch, `app/monitor/run.py`:
 Same core, but `due_messages` is filtered to `URGENT` only. A watch whose
 decision is fine, or whose urgent cause hash is already in `notified`, produces
 **nothing** — no email, and `watches.json` is left byte-for-byte unchanged (no
-noisy hourly commits). The agent is invoked *only* for a watch that has a new
+noisy hourly writes). The agent is invoked *only* for a watch that has a new
 urgent condition, and only if a runtime token is configured.
 
 ## Runtime AI in the scheduled workflows
@@ -147,7 +153,7 @@ MORNING is due, agent runtime up -> run_parking_agent:
 compose_email(watch, decision, MORNING, prose)
     subject "Parking OK - W Wrightwood Ave"
 send via Gmail -> notified += ["morning:2026-05-14"]
-commit backend/watches.json  (last_decision, last_checked_at, notified changed)
+save watches.json to the private repo (last_decision, last_checked_at, notified changed)
 ```
 
 ### 2. Morning heads-up (a move is coming)
@@ -180,10 +186,10 @@ due_messages -> [..., URGENT];  filtered to [URGENT]
   -> communication is warranted -> run_parking_agent for THIS watch:
        get_closure_detail (what/where/when), find_legal_parking_nearby, prose
 compose_email(..., URGENT, prose)   subject "URGENT: A verified restriction ..."
-send -> notified += ["urgent:7f3a2b1c"]  -> commit watches.json
+send -> notified += ["urgent:7f3a2b1c"]  -> save watches.json (private repo)
 
 15:00 poll: same NOT_LEGAL, same hash, hash already in notified
-  -> due after filter is []  -> nothing sent, watches.json untouched, no commit
+  -> due after filter is []  -> nothing sent, watches.json untouched (no write)
 
 next 13:00 daily run: due_messages -> [MORNING, URGENT]; URGENT hash already
   sent -> effective [MORNING] -> the morning summary goes out (it still shows

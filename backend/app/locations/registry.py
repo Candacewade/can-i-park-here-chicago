@@ -20,15 +20,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.config import (
-    BLOCKS_FILE,
-    GH_BLOCKS_PATH,
-    GH_WATCHES_BRANCH,
-    GH_WATCHES_REPO,
-    GH_WATCHES_TOKEN,
-    LOCATIONS_FIXTURE_PATH,
-)
-from app.json_store import FileJsonStore, GitHubJsonStore
+from app.config import BLOCKS_DATA_NAME, LOCATIONS_FIXTURE_PATH
+from app.json_store import FileJsonStore, GitHubJsonStore, data_store
 
 Side = Literal["north", "south", "east", "west"]
 Parity = Literal["odd", "even", "any"]
@@ -120,11 +113,8 @@ def side_from_slug(location_id: str) -> tuple[str, str, str, int, str] | None:
 # --- storage --------------------------------------------------------
 
 def _blocks_store() -> FileJsonStore | GitHubJsonStore:
-    if GH_WATCHES_REPO and GH_WATCHES_TOKEN:
-        return GitHubJsonStore(
-            GH_WATCHES_REPO, GH_WATCHES_TOKEN, GH_BLOCKS_PATH, GH_WATCHES_BRANCH
-        )
-    return FileJsonStore(BLOCKS_FILE)
+    """Resolved blocks are user data -> the private data repo (or a local file)."""
+    return data_store(BLOCKS_DATA_NAME)
 
 
 _cache: dict[str, ChicagoParkingLocation] | None = None

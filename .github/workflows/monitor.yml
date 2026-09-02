@@ -3,17 +3,20 @@ name: Parking monitor (daily)
 # The daily morning pass: status summary, move reminders, and any urgent alert.
 # Render Free has no cron, so this runs here. See docs/monitoring.md.
 #
-# When CLAUDE_CODE_OAUTH_TOKEN is configured (a subscription-backed token from
-# `claude setup-token`, stored as a repo secret -- NOT an API key), the Claude
-# agent does its optional investigation and composes the email. Without it, the
-# job falls back to deterministic templates; alerts still send.
+# All runtime user data (watches, resolved blocks, notify map) lives in a
+# SEPARATE PRIVATE repo, written through the Contents API with GH_DATA_TOKEN.
+# Nothing is written back to this public repo.
+#
+# When CLAUDE_CODE_OAUTH_TOKEN is set (from `claude setup-token` -- a
+# subscription token, NOT an API key), the Claude agent composes the email;
+# otherwise deterministic templates. Alerts still send either way.
 on:
   schedule:
     - cron: "0 13 * * *"   # ~07:00-08:00 America/Chicago
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: parking-monitor          # shared with the hourly workflow -> they serialize
@@ -26,6 +29,8 @@ jobs:
       run:
         working-directory: backend
     env:
+      GH_DATA_REPO: ${{ secrets.GH_DATA_REPO }}
+      GH_DATA_TOKEN: ${{ secrets.GH_DATA_TOKEN }}
       WATCH_NOTIFY_MAP: ${{ secrets.WATCH_NOTIFY_MAP }}
       GMAIL_SENDER: ${{ secrets.GMAIL_SENDER }}
       GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -47,16 +52,4 @@ jobs:
           else
             echo "No CLAUDE_CODE_OAUTH_TOKEN -> deterministic templates"
             python -m app.monitor --no-agent
-          fi
-
-      - name: Commit watch-state changes
-        run: |
-          cd "$GITHUB_WORKSPACE"
-          if ! git diff --quiet -- backend/watches.json; then
-            git config user.name "parking-monitor[bot]"
-            git config user.email "parking-monitor@users.noreply.github.com"
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
-            git add backend/watches.json
-            git commit -m "chore: monitor (daily) $(date -u +%FT%TZ)"
-            git push
           fi

@@ -25,7 +25,7 @@ from app.monitor import notify
 from app.monitor.compose import compose_email
 from app.monitor.models import Watch, WatchStatus
 from app.monitor.schedule import MessageType, due_messages, notified_key, primary
-from app.monitor.store import FileWatchStore, GitHubWatchStore, get_store
+from app.monitor.store import WatchStore, get_store
 from app.rules.engine import evaluate_parking
 from app.rules.gather import gather_evidence
 from app.services.email import send_email
@@ -88,7 +88,7 @@ async def _investigate(request: ParkingRequest, decision: ParkingDecision):
 
 async def run_monitor(
     now: datetime | None = None,
-    store: FileWatchStore | GitHubWatchStore | None = None,
+    store: WatchStore | None = None,
     use_agent: bool = True,
     urgent_only: bool = False,
 ) -> MonitorReport:
