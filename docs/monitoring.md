@@ -53,8 +53,13 @@ repo — no `contents: write`, no commit step; state goes to the private repo vi
 
 | workflow | cron | mode | agent |
 |---|---|---|---|
-| `.github/workflows/monitor.yml` | `17 12 * * *` (12:17 UTC, ~06:17–07:17 CT) | **full** — morning summary, reminders, urgent | yes, when a runtime token is configured |
+| `.github/workflows/monitor.yml` | `17 12` + backups `17 13`, `37 13` UTC (~06:17–08:37 CT) | **full** — morning summary, reminders, urgent | yes, when a runtime token is configured |
 | `.github/workflows/urgent.yml` | `0 * * * *` (hourly) | **urgent poll** — deterministic; acts only on a *new* urgent condition | only for a watch that has a new urgent condition |
+
+The daily workflow runs three times a morning — a primary at 12:17 UTC and two
+backups at 13:17 and 13:37 — because GitHub sometimes delays or drops a scheduled
+run. `schedule.py`'s `morning:<date>` dedup means a backup that fires after the
+primary already sent does nothing: **still exactly one morning email per day.**
 
 The repo is public, so Actions minutes are free and unmetered. On a private repo
 this is ~1,100 min/month (under the 2,000 free tier) — raise the hourly interval
