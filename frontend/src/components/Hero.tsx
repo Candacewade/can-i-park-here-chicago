@@ -37,8 +37,8 @@ export function Hero() {
 function Skyline() {
   return (
     <svg className="skyline" viewBox="0 0 420 200" aria-hidden="true">
-      <rect width="420" height="200" fill="#CFFFB0" rx="16" />
-      <g fill="#5998C5">
+      <rect width="420" height="200" fill="#9fcbee" rx="16" />
+      <g fill="#6497bf">
         <rect x="18" y="120" width="34" height="70" rx="2" />
         <rect x="58" y="92" width="26" height="98" rx="2" />
         <rect x="90" y="108" width="30" height="82" rx="2" />
@@ -68,13 +68,22 @@ function Skyline() {
         <rect x="308" y="134" width="4" height="6" />
       </g>
       {/* parking sign */}
-      <rect x="332" y="140" width="3" height="44" fill="#000" />
-      <rect x="319" y="130" width="29" height="26" rx="5" fill="#fff" stroke="#000" strokeWidth="2" />
-      <text x="333.5" y="150" fontSize="16" fontWeight="700" fill="#000" textAnchor="middle">
+      <rect x="332" y="140" width="3" height="44" fill="#01016f" />
+      <rect
+        x="319"
+        y="130"
+        width="29"
+        height="26"
+        rx="5"
+        fill="#fff"
+        stroke="#01016f"
+        strokeWidth="2"
+      />
+      <text x="333.5" y="150" fontSize="16" fontWeight="700" fill="#01016f" textAnchor="middle">
         P
       </text>
       {/* car */}
-      <g fill="#000">
+      <g fill="#01016f">
         <path d="M262 176c1-6 4-10 8-10h20c4 0 7 3 9 8l3 8h-44l4-14Z" />
         <rect x="258" y="181" width="46" height="9" rx="3" />
       </g>
