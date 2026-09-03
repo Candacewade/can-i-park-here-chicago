@@ -9,7 +9,7 @@ export function Nav() {
         <span className="brand-mark" aria-hidden="true">
           P
         </span>
-        <span className="brand-name">Can I Park Here?</span>
+        <span className="brand-name">Can I Park Here, Chicago?</span>
       </a>
       <div className="nav-right">
         <span className="nav-city">

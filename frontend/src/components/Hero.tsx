@@ -2,9 +2,10 @@ export function Hero() {
   return (
     <header className="hero">
       <div className="hero-copy">
-        <h1>Can I Park Here?</h1>
+        <h1>Can I Park Here, Chicago?</h1>
         <p className="hero-sub">
-          Chicago street parking, checked against City data before you leave your car.
+          Verify if you can park legally, and sign up to get daily notifications updating
+          you on street cleaning, events, and more so you never get another ticket!
         </p>
       </div>
       <Skyline />

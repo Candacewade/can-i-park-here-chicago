@@ -150,6 +150,11 @@ h3 {
     display: none;
   }
 }
+@media (max-width: 400px) {
+  .brand-name {
+    font-size: 14px;
+  }
+}
 
 /* ---------- hero ---------- */
 
@@ -161,18 +166,20 @@ h3 {
   padding: 26px 4px 30px;
 }
 .hero h1 {
-  margin: 0 0 10px;
-  font-size: 44px;
-  line-height: 1.05;
-  letter-spacing: -0.025em;
+  margin: 0 0 14px;
+  font-size: 56px;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
   font-weight: 800;
   color: var(--navy);
 }
 .hero-sub {
   margin: 0;
-  color: var(--ink-2);
-  font-size: 17px;
-  max-width: 46ch;
+  color: var(--navy);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.45;
+  max-width: 52ch;
 }
 .skyline {
   width: 100%;
@@ -189,10 +196,10 @@ h3 {
     display: none;
   }
   .hero h1 {
-    font-size: 32px;
+    font-size: 38px;
   }
   .hero-sub {
-    font-size: 15.5px;
+    font-size: 17px;
   }
 }
 
