@@ -169,45 +169,10 @@ h3 {
   color: var(--navy);
 }
 .hero-sub {
-  margin: 0 0 18px;
+  margin: 0;
   color: var(--ink-2);
   font-size: 17px;
   max-width: 46ch;
-}
-.hero-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.hero-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  background: #fff;
-  border: 1px solid var(--line-2);
-  border-radius: 14px;
-  box-shadow: var(--shadow-sm);
-}
-.hero-chip strong {
-  display: block;
-  font-size: 13.5px;
-  color: var(--navy);
-}
-.hero-chip em {
-  display: block;
-  font-style: normal;
-  font-size: 12px;
-  color: var(--muted);
-}
-.chip-ic {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  display: grid;
-  place-items: center;
-  color: var(--navy);
-  background: var(--blue-light);
 }
 .skyline {
   width: 100%;
@@ -916,8 +881,8 @@ button.back:hover {
 /* ---------- monitor: persistent status card ---------- */
 
 .monitor {
-  background: #fff;
-  border: 1px solid var(--navy);
+  background: rgba(216, 3, 28, 0.08); /* faded #d8031c */
+  border: 1px solid rgba(216, 3, 28, 0.35);
 }
 .monitor-top {
   display: flex;

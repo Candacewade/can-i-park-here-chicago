@@ -1,5 +1,3 @@
-import { Icon } from "./Icon";
-
 export function Hero() {
   return (
     <header className="hero">
@@ -8,26 +6,6 @@ export function Hero() {
         <p className="hero-sub">
           Chicago street parking, checked against City data before you leave your car.
         </p>
-        <div className="hero-chips">
-          <span className="hero-chip">
-            <span className="chip-ic ic-green">
-              <Icon name="shield" size={16} />
-            </span>
-            <span>
-              <strong>City data powered</strong>
-              <em>Rules from official sources</em>
-            </span>
-          </span>
-          <span className="hero-chip">
-            <span className="chip-ic ic-yellow">
-              <Icon name="sparkles" size={16} />
-            </span>
-            <span>
-              <strong>AI edge analysis</strong>
-              <em>Context &amp; clearer answers</em>
-            </span>
-          </span>
-        </div>
       </div>
       <Skyline />
     </header>
