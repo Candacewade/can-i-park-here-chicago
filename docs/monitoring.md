@@ -53,7 +53,7 @@ repo — no `contents: write`, no commit step; state goes to the private repo vi
 
 | workflow | cron | mode | agent |
 |---|---|---|---|
-| `.github/workflows/monitor.yml` | `0 13 * * *` (~07:00–08:00 CT) | **full** — morning summary, reminders, urgent | yes, when a runtime token is configured |
+| `.github/workflows/monitor.yml` | `17 12 * * *` (12:17 UTC, ~06:17–07:17 CT) | **full** — morning summary, reminders, urgent | yes, when a runtime token is configured |
 | `.github/workflows/urgent.yml` | `0 * * * *` (hourly) | **urgent poll** — deterministic; acts only on a *new* urgent condition | only for a watch that has a new urgent condition |
 
 The repo is public, so Actions minutes are free and unmetered. On a private repo
@@ -264,7 +264,7 @@ the stored active watch (refresh / new tab / return visit).
 
 ### 1. Normal morning, nothing wrong
 
-`monitor.yml` fires at 13:00 UTC → token present → installs the CLI →
+`monitor.yml` fires at 12:17 UTC → token present → installs the CLI →
 `python -m app.monitor`.
 
 ```
