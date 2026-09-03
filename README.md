@@ -40,20 +40,8 @@ hallucination prevention against pinned City data.
 
 ## Try it
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e "backend[dev]"
+https://can-i-park-here-chicago.vercel.app/
 
-cd backend && uvicorn app.api.main:app --port 8000   # backend
-cd ../frontend && npm install && npm run dev          # http://localhost:5173
-# then enter an address, e.g. 2400 N Clark St / 60614
-```
-
-You'll see the address resolve to a canonical block, the deterministic core
-decide, the agent optionally investigate (snow, events, alternatives), and a
-grounded explanation — with every tool call visible in the agent-run inspector.
-The agent runs locally (via your Claude subscription through the Claude Code
-CLI); deploy notes are in [docs/deployment.md](docs/deployment.md).
 
 ## Docs
 
