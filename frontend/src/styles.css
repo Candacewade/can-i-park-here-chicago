@@ -115,41 +115,6 @@ h3 {
   letter-spacing: -0.01em;
   color: var(--navy);
 }
-.nav-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.nav-city {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--navy);
-  background: #fff;
-  border: 1px solid var(--line-2);
-}
-.nav-gh {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  color: var(--navy);
-  background: #fff;
-  border: 1px solid var(--line-2);
-}
-.nav-gh:hover {
-  border-color: var(--blue);
-}
-@media (max-width: 560px) {
-  .nav-city {
-    display: none;
-  }
-}
 @media (max-width: 400px) {
   .brand-name {
     font-size: 14px;
