@@ -220,6 +220,37 @@ def test_reason_detail_is_html_escaped():
     assert "&lt;script&gt;" in email.body_html
 
 
+# --- final day (last calendar day of the watch's window) ------------
+
+def test_final_day_email_content_and_subject():
+    d = ParkingDecision(
+        status=ParkingStatus.LEGAL,
+        reasons=[DecisionReason(category="residential", verdict="allows", detail="ok.")],
+        start_time_display="A", end_time_display="Sunday, September 20, 2026 at 9:00 AM",
+    )
+    email = compose_email(_watch(), d, MessageType.FINAL_DAY)
+    assert email.subject == "🅿️ Today is the last day of your parking window"
+    assert "last day of your parking window" in email.body_html.lower()
+    assert "Sunday, September 20, 2026 at 9:00 AM" in email.body_html
+    assert "LEGAL" in email.body_html   # still reports today's actual status
+    # the extend-or-move-on choice, per the requested copy
+    assert "extend" in email.body_text.lower()
+    assert "new check" in email.body_text.lower() or "new spot" in email.body_text.lower()
+
+
+def test_final_day_email_still_shows_why_and_alternatives_when_not_legal():
+    email = compose_email(_watch(), _not_legal_decision(), MessageType.FINAL_DAY)
+    assert "NOT LEGAL" in email.body_html
+    assert "Residential zone 100 permit required" in email.body_html
+
+
+def test_final_day_email_has_extend_and_change_spot_links():
+    email = compose_email(_watch(), _legal_until_decision(), MessageType.FINAL_DAY)
+    for label in ("Extend parking time", "Change parking spot",
+                  "Stop monitoring this parking spot"):
+        assert label in email.body_html
+
+
 def test_nearby_language_only_when_investigated(monkeypatch):
     # LEGAL -> no investigation, no nearby section
     d = ParkingDecision(

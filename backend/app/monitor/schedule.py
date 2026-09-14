@@ -18,7 +18,8 @@ class MessageType(IntEnum):
     MORNING = 1
     REMINDER_3D = 2
     REMINDER_NIGHT_BEFORE = 3
-    URGENT = 4
+    FINAL_DAY = 4
+    URGENT = 5
 
 
 def urgent_cause_key(decision: ParkingDecision) -> str:
@@ -30,6 +31,8 @@ def notified_key(msg: MessageType, decision: ParkingDecision, now: datetime) -> 
     today = now.astimezone(CHICAGO_TZ).date().isoformat()
     if msg is MessageType.MORNING:
         return f"morning:{today}"
+    if msg is MessageType.FINAL_DAY:
+        return f"final_day:{today}"
     if msg is MessageType.URGENT:
         return urgent_cause_key(decision)
     if msg is MessageType.REMINDER_3D:
@@ -40,9 +43,24 @@ def notified_key(msg: MessageType, decision: ParkingDecision, now: datetime) -> 
 def due_messages(watch: Watch, decision: ParkingDecision, now: datetime) -> list[MessageType]:
     now_local = now.astimezone(CHICAGO_TZ)
     today = now_local.date()
+    end_date = watch.end_time.astimezone(CHICAGO_TZ).date()
     due: list[MessageType] = []
 
-    if f"morning:{today.isoformat()}" not in watch.notified:
+    # The calendar day the requested window ends is the LAST day this watch
+    # emails a routine daily message -- a special one-time note instead of the
+    # ordinary morning check. (`run.py` keeps the watch ACTIVE through this
+    # whole day and only marks it EXPIRED starting the day after, so this
+    # branch is reached exactly once.)
+    if today >= end_date:
+        if f"final_day:{today.isoformat()}" not in watch.notified:
+            due.append(MessageType.FINAL_DAY)
+    elif (
+        f"morning:{today.isoformat()}" not in watch.notified
+        # extending on the final day (after that day's final_day email already
+        # went out) pushes end_date into the future, landing here -- but the
+        # user already got today's message, so don't send a second one
+        and f"final_day:{today.isoformat()}" not in watch.notified
+    ):
         due.append(MessageType.MORNING)
 
     if decision.urgent_alert and urgent_cause_key(decision) not in watch.notified:

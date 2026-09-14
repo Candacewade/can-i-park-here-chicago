@@ -13,9 +13,17 @@ email, urgent alerts when a time-sensitive risk appears, and move reminders.
 | `watch_id` | stable, anonymous — `wch_<12 hex>` |
 | `manage_token` | opaque per-watch capability (`secrets.token_urlsafe`). The credential for unsubscribe / replace; embedded in that watch's own email links. Not PII. |
 | `location_id`, `start_time`, `end_time`, `permit_zone` | the request to monitor |
-| `status` | `active` / `resolved` (moved / cancelled / unsubscribed / replaced) / `expired` (`end_time` passed) |
+| `status` | `active` / `resolved` (moved / cancelled / unsubscribed / replaced) / `expired` (the calendar day `end_time` falls on has passed — see below) |
 | `created_at`, `last_decision`, `last_checked_at` | |
-| `notified` | keys of messages already sent: `morning:<date>`, `urgent:<cause-hash>`, `reminder:3d`, `reminder:night` |
+| `notified` | keys of messages already sent: `morning:<date>`, `final_day:<date>`, `urgent:<cause-hash>`, `reminder:3d`, `reminder:night` |
+
+**Expiry is calendar-day based, not instant-based.** A watch stays `active`
+(and keeps being checked/emailed) through the *entire* calendar day
+`end_time` falls on — that day gets one special `FINAL_DAY` email instead of
+the ordinary `MORNING` one (see below) — and only flips to `expired` the day
+after. This guarantees exactly one last message on a watch's final day rather
+than the watch silently going quiet mid-morning once the precise `end_time`
+instant passes (`app/monitor/run.py`).
 
 **Only an `active` watch ever notifies.** `resolved` and `expired` watches are
 skipped by both scheduled passes — unsubscribing or replacing a spot stops all
@@ -103,7 +111,10 @@ Per active watch, `app/monitor/run.py`:
 ```
 1. DETERMINISTIC CORE: gather_evidence -> evaluate_parking -> decision + urgent_alert
 2. app/monitor/schedule.py:due_messages(watch, decision, now)  -- purely deterministic:
-     morning        -- once per calendar day
+     morning        -- once per calendar day, UNLESS today is the watch's
+                        final day (see final_day) -- then this does not fire
+     final_day      -- once, on the calendar day watch.end_time falls on;
+                        replaces that day's morning message
      urgent         -- iff decision.urgent_alert, once per distinct cause hash
      reminder 3d    -- exactly REMINDER_DAYS_AHEAD days before decision.move_by
      reminder night -- the evening before move_by (after REMINDER_NIGHT_BEFORE_HOUR)
@@ -111,9 +122,18 @@ Per active watch, `app/monitor/run.py`:
      run_parking_agent(request)  -- investigation wing (snow/weather, events,
      find_legal_parking_nearby) + prose; re-take the decision + due list
 4. compose one email for the highest-priority due message
-     (URGENT > night-before > 3d > morning); mark every due key notified
+     (URGENT > final_day > night-before > 3d > morning); mark every due key notified
 5. send via Gmail SMTP (or ./outbox/ with no credentials); persist watches
 ```
+
+**The final-day email** (`app/monitor/compose.py:_final_day_doc`) is the last
+routine message a watch ever sends. It still reports today's actual
+LEGAL/LEGAL_UNTIL/NOT_LEGAL/UNKNOWN status (the same body as the ordinary
+daily check — `_status_nodes`, shared by both), framed with an explicit
+choice: extend (the same "Extend parking time" link every email already
+carries) or do nothing and the watch quietly expires tomorrow — no further
+email until a new watch is created. A same-day `URGENT` alert still overrides
+it (safety-critical alerts are never suppressed by the calendar cutoff).
 
 ### Urgent poll — `python -m app.monitor --urgent-only`
 
@@ -250,6 +270,7 @@ that was previously irrelevant, and it must still be able to notify:
 |---|---|---|
 | `reminder:3d`, `reminder:night` | **dropped** | they are relative to `move_by`, which the new window may have moved; keeping an already-sent key would suppress the reminder for the *new* deadline |
 | `morning:<date>` | kept | the same calendar day needs no second summary — the UI already showed the new status, and tomorrow's summary reflects the new window |
+| `final_day:<date>` | kept | extending ON the watch's final day (after that day's final-day email already went out) pushes `end_date` into the future — without this, `due_messages` would fall through to the (unsent) `morning:<date>` key and send a redundant same-day email right after the extend |
 | `urgent:<cause-hash>` | kept | an unchanged blocking cause must not re-alert. A **newly relevant** restriction produces a **different** `urgent_reason` → a different hash → not in `notified` → it fires normally |
 
 So the smallest correct rule is: **drop `reminder:*`, keep everything else.**
@@ -359,7 +380,30 @@ next 13:00 daily run: due_messages -> [MORNING, URGENT]; URGENT hash already
   the NOT_LEGAL status), no duplicate urgent alert
 ```
 
-### 4. Claude runtime unavailable
+### 4. The last day of the parking window
+
+The watch's `end_time` is 9:00 AM today (Chicago).
+
+```
+now.date() == end_time.date()  -> watch stays ACTIVE (not yet expired)
+due_messages -> [FINAL_DAY]  (not MORNING -- mutually exclusive by day)
+compose_email(..., FINAL_DAY, prose)
+    subject "🅿️ Today is the last day of your parking window"
+    body: today's actual status (LEGAL/LEGAL_UNTIL/NOT_LEGAL/UNKNOWN) +
+          "extend below, or do nothing and it stops after today"
+send -> notified += ["final_day:<date>"]
+
+next morning: now.date() > end_time.date() -> watch marked EXPIRED, no email,
+  no further checks -- until the user sets up a new watch
+```
+
+If the user clicks **Extend parking time** later that same day, `end_time`
+moves into the future; the next run that day now falls before the new
+`end_date`, but `final_day:<date>` (kept by the extend endpoint, see below)
+suppresses that day's `morning:<date>` key too, so extending doesn't also
+trigger a redundant same-day summary.
+
+### 5. Claude runtime unavailable
 
 `CLAUDE_CODE_OAUTH_TOKEN` is not set (or auth fails at runtime, or the CLI is
 missing). The workflow runs `python -m app.monitor --no-agent`; if a token was

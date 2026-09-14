@@ -105,7 +105,13 @@ async def run_monitor(
     for watch in watches.values():
         if watch.status != WatchStatus.ACTIVE:
             continue
-        if now >= watch.end_time:
+        # Calendar-day cutoff, not the precise end_time instant: the watch stays
+        # active (and keeps checking/emailing) through the whole day its window
+        # ends -- that's the FINAL_DAY message -- and only expires starting the
+        # day after, so a user always gets exactly one message on their last day
+        # rather than the watch silently going quiet mid-morning.
+        end_date = watch.end_time.astimezone(CHICAGO_TZ).date()
+        if now.astimezone(CHICAGO_TZ).date() > end_date:
             if not urgent_only:
                 watch.status = WatchStatus.EXPIRED
                 changed = True

@@ -129,10 +129,36 @@ async def test_no_destination_still_updates_state_but_sends_nothing(monkeypatch)
 
 
 async def test_expired_watch_is_marked(monkeypatch, sent):
+    """Expiry is calendar-day based: a watch only expires the day AFTER its
+    end_time's date, not the instant end_time passes (see test below)."""
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    w = _watch(end_time=NOW - timedelta(days=1))
+    report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
+    assert report.checked == 0
+    assert w.status is WatchStatus.EXPIRED
+
+
+async def test_watch_still_checked_on_its_final_calendar_day(monkeypatch, sent):
+    """end_time already passed earlier TODAY -- still the watch's last day, so
+    it's still checked (and sent the FINAL_DAY email, not silently dropped)."""
     _stub_decision(monkeypatch, ParkingStatus.LEGAL)
     w = _watch(end_time=NOW - timedelta(hours=1))
     report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
+    assert report.checked == 1
+    assert w.status is WatchStatus.ACTIVE
+    assert report.emails_sent == 1
+    assert "last day" in sent[0][1].lower()
+
+
+async def test_no_more_emails_the_day_after_final_day(monkeypatch, sent):
+    """The morning after the final-day email: the watch expires and sends
+    nothing further -- no more emails until the user sets up a new watch."""
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    w = _watch(end_time=NOW - timedelta(hours=1), notified=[f"final_day:{NOW.date().isoformat()}"])
+    next_morning = NOW + timedelta(days=1)
+    report = await run_monitor(now=next_morning, store=MemStore([w]), use_agent=False)
     assert report.checked == 0
+    assert report.emails_sent == 0
     assert w.status is WatchStatus.EXPIRED
 
 

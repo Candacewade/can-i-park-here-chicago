@@ -248,6 +248,8 @@ def _subject(msg: MessageType, decision: ParkingDecision) -> str:
     st = decision.status
     if msg is MessageType.URGENT:
         return "🚨 Urgent parking alert: Move your car now"
+    if msg is MessageType.FINAL_DAY:
+        return "🅿️ Today is the last day of your parking window"
     if msg is MessageType.REMINDER_3D and decision.move_by:
         return f"⏰ Reminder: move your car by {_short_when(decision.move_by)}"
     if msg is MessageType.REMINDER_NIGHT_BEFORE and decision.move_by:
@@ -319,22 +321,17 @@ def _urgent_doc(
     return EmailDoc("Time-Sensitive Parking Alert", _preheader(decision), nodes)
 
 
-def _daily_doc(
+def _status_nodes(
     watch: Watch,
     decision: ParkingDecision,
-    msg: MessageType,
-    loc: ChicagoParkingLocation | None,
     prose: str | None,
-) -> EmailDoc:
+    loc: ChicagoParkingLocation | None,
+) -> list:
+    """The verdict panel + why/alternatives/next-step body -- shared by the
+    ordinary daily check and the final-day email, which both still need to
+    report today's actual legality status."""
     st = decision.status
-    nodes: list = [H1("🚗 Daily Parking Check"), P(_block_line(loc, watch))]
-    pl = _place_line(loc)
-    if pl:
-        nodes.append(P(pl, muted=True))
-    nodes.append(Rule())
-
-    nodes.append(H2("🗓️ Parking window"))
-    nodes.append(P(f"{decision.start_time_display} → {decision.end_time_display}"))
+    nodes: list = []
 
     if st is ParkingStatus.LEGAL_UNTIL and decision.move_by_display:
         primary = _primary_limit(decision)
@@ -413,8 +410,64 @@ def _daily_doc(
         for u in decision.unknown_reasons:
             nodes.append(Finding("⚠️", "Not verified", u))
 
+    return nodes
+
+
+def _daily_doc(
+    watch: Watch,
+    decision: ParkingDecision,
+    loc: ChicagoParkingLocation | None,
+    prose: str | None,
+) -> EmailDoc:
+    nodes: list = [H1("🚗 Daily Parking Check"), P(_block_line(loc, watch))]
+    pl = _place_line(loc)
+    if pl:
+        nodes.append(P(pl, muted=True))
+    nodes.append(Rule())
+
+    nodes.append(H2("🗓️ Parking window"))
+    nodes.append(P(f"{decision.start_time_display} → {decision.end_time_display}"))
+
+    nodes += _status_nodes(watch, decision, prose, loc)
     nodes += _footer_nodes(watch)
     return EmailDoc("Daily Parking Check", _preheader(decision), nodes)
+
+
+def _final_day_doc(
+    watch: Watch,
+    decision: ParkingDecision,
+    loc: ChicagoParkingLocation | None,
+    prose: str | None,
+) -> EmailDoc:
+    """The last message this watch sends before it expires -- the calendar day
+    ``watch.end_time`` falls on. Same status body as the ordinary daily check,
+    framed as a farewell with an explicit extend-or-move-on choice, rather than
+    the watch just going silent."""
+    nodes: list = [H1("🅿️ Today is the last day of your parking window"), P(_block_line(loc, watch))]
+    pl = _place_line(loc)
+    if pl:
+        nodes.append(P(pl, muted=True))
+    nodes.append(Rule())
+
+    nodes.append(
+        P(
+            f"You set this parking window to end today, {decision.end_time_display}. "
+            "This is the last check-in email for this spot."
+        )
+    )
+    nodes.append(
+        P(
+            "Still parked here and need more time? Extend your parking time below. "
+            "Otherwise you don't have to do anything — monitoring for this spot stops "
+            "after today. Parking somewhere new? Come back and set up a new check any time."
+        )
+    )
+
+    nodes.append(Rule())
+    nodes.append(H2("🗓️ Today's status"))
+    nodes += _status_nodes(watch, decision, prose, loc)
+    nodes += _footer_nodes(watch)
+    return EmailDoc("Last day of your parking window", _preheader(decision), nodes)
 
 
 def compose_email(
@@ -427,8 +480,10 @@ def compose_email(
     prose = agent_prose.strip() if agent_prose and agent_prose.strip() else None
     if msg is MessageType.URGENT:
         doc = _urgent_doc(watch, decision, loc, prose)
+    elif msg is MessageType.FINAL_DAY:
+        doc = _final_day_doc(watch, decision, loc, prose)
     else:
-        doc = _daily_doc(watch, decision, msg, loc, prose)
+        doc = _daily_doc(watch, decision, loc, prose)
     return Email(
         subject=_subject(msg, decision),
         body_text=render_text(doc),
