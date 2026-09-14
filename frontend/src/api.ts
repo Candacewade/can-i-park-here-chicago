@@ -56,6 +56,17 @@ export function resolveAddress(addr: AddressInput, side?: string): Promise<Resol
   }).then((r) => json<ResolveResponse>(r));
 }
 
+/** "Use my current location": browser coordinates -> a matched Chicago block,
+ * same shape as resolveAddress. Uses only the City's own street data on the
+ * backend -- no third-party geocoding service, no new cost. */
+export function reverseGeocode(latitude: number, longitude: number): Promise<ResolveResponse> {
+  return fetch(`${BASE}/api/locations/reverse`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ latitude, longitude }),
+  }).then((r) => json<ResolveResponse>(r));
+}
+
 export function analyze(locationId: string, when: WhenInput): Promise<AnalyzeResponse> {
   return fetch(`${BASE}/api/parking/analyze`, {
     method: "POST",

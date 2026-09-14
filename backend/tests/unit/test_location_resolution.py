@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from app.geo import dominant_axis, point_in_polygon, signed_side
+from app.geo import dominant_axis, nearest_point_on_segment, point_in_polygon, signed_side
 from app.locations import resolve as resolve_mod
 from app.locations.geocode import GeocodeError, GeocodeResult, census_geocode
 from app.locations.registry import side_from_slug, slug_for_street
@@ -21,6 +21,24 @@ def test_signed_side_and_axis():
     assert signed_side((0, 0), (0, 1), (0.1, 0.5)) < 0
     assert dominant_axis((0, 0), (0, 1)) == "ns"
     assert dominant_axis((0, 0), (1, 0)) == "ew"
+
+
+def test_nearest_point_on_segment_midpoint():
+    _, t = nearest_point_on_segment((0, 0), (0, 2), (1, 1))  # due-north segment
+    assert t == pytest.approx(0.5)
+
+
+def test_nearest_point_on_segment_clamps_past_the_ends():
+    _, t_before = nearest_point_on_segment((0, 0), (0, 2), (1, -5))
+    _, t_after = nearest_point_on_segment((0, 0), (0, 2), (1, 50))
+    assert t_before == 0.0
+    assert t_after == 1.0
+
+
+def test_nearest_point_on_segment_zero_length():
+    projected, t = nearest_point_on_segment((1, 1), (1, 1), (5, 5))
+    assert t == 0.0
+    assert projected == (1, 1)
 
 
 def test_point_in_polygon_square_with_hole():

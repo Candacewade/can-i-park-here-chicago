@@ -26,6 +26,13 @@ class ResolveRequest(BaseModel):
     )
 
 
+class ReverseGeocodeRequest(BaseModel):
+    """Browser geolocation coordinates -- sent once, never stored server-side."""
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
 class SideCandidate(BaseModel):
     side: str
     location_id: str

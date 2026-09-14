@@ -88,3 +88,27 @@ def signed_side(start: Point, end: Point, pt: Point) -> float:
 def dominant_axis(start: Point, end: Point) -> str:
     """'ns' if the segment runs more north-south, else 'ew'."""
     return "ns" if abs(end[1] - start[1]) >= abs(end[0] - start[0]) else "ew"
+
+
+def nearest_point_on_segment(start: Point, end: Point, pt: Point) -> tuple[Point, float]:
+    """Project ``pt`` onto the segment ``start``-``end``.
+
+    Returns ``(projected_point, t)`` where ``t`` in ``[0, 1]`` is how far along
+    start->end the closest point falls (0 = start, 1 = end). Equirectangular
+    approximation (flat-earth, scaled by cos(latitude)) -- fine at the scale of
+    one city block; use ``haversine_km`` on the result for a real distance.
+    """
+    lat0 = math.radians((start[1] + end[1]) / 2.0)
+    cos_lat0 = math.cos(lat0) or 1.0  # guard the (never-hit-in-Chicago) pole case
+
+    def xy(p: Point) -> tuple[float, float]:
+        return p[0] * cos_lat0, p[1]
+
+    sx, sy = xy(start)
+    ex, ey = xy(end)
+    px, py = xy(pt)
+    dx, dy = ex - sx, ey - sy
+    seg_len2 = dx * dx + dy * dy
+    t = 0.0 if seg_len2 == 0 else ((px - sx) * dx + (py - sy) * dy) / seg_len2
+    t = max(0.0, min(1.0, t))
+    return (start[0] + t * (end[0] - start[0]), start[1] + t * (end[1] - start[1])), t

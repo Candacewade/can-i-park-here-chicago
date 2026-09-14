@@ -8,9 +8,21 @@ interface Props {
   onSubmit: () => void;
   examples: ExampleAddress[];
   busy: boolean;
+  /** "Use my current location" -- undefined hides the button entirely
+   * (e.g. the browser has no geolocation API). */
+  onLocateMe?: () => void;
+  locating?: boolean;
 }
 
-export function AddressForm({ value, onChange, onSubmit, examples, busy }: Props) {
+export function AddressForm({
+  value,
+  onChange,
+  onSubmit,
+  examples,
+  busy,
+  onLocateMe,
+  locating,
+}: Props) {
   const set = (patch: Partial<AddressInput>) => onChange({ ...value, ...patch });
   const ready = value.number.trim() && value.street.trim();
 
@@ -27,6 +39,26 @@ export function AddressForm({ value, onChange, onSubmit, examples, busy }: Props
         title="Where are you parking?"
         hint="The exact Chicago address you're parked at, or next to."
       >
+        {onLocateMe && (
+          <>
+            <button
+              type="button"
+              className="secondary wide"
+              disabled={busy || locating}
+              onClick={onLocateMe}
+            >
+              <Icon name="pin" size={16} />
+              {locating ? "Finding your block…" : "Use my current location"}
+            </button>
+            <p className="privacy-note">
+              <Icon name="shield" size={14} /> Your coordinates are sent once to match the
+              nearest block, then discarded — never stored.
+            </p>
+            <p className="note" style={{ textAlign: "center", margin: "10px 0" }}>
+              or enter it yourself
+            </p>
+          </>
+        )}
         <div className="row">
           <label className="narrow">
             Number

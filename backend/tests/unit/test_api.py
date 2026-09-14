@@ -146,6 +146,48 @@ def test_resolve_survives_zone_lookup_raising(monkeypatch):
     assert r.json()["side_options"][0]["required_permit_zone"] is None
 
 
+# --- POST /api/locations/reverse ("use my current location") ---------
+
+def test_reverse_locate_matches_a_block(monkeypatch):
+    monkeypatch.setattr(api_main, "reverse_geocode", lambda lat, lon: _fake_resolve_two_sides(
+        None, None, None,
+    ))
+    monkeypatch.setattr(api_main, "remember_location", lambda loc: None)
+    monkeypatch.setattr(
+        api_main, "get_residential_zone_evidence",
+        lambda loc: _zone_evidence("VERIFIED", zone_required="143"),
+    )
+
+    r = client.post(
+        "/api/locations/reverse", json={"latitude": 41.9256, "longitude": -87.6406}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["in_chicago"] is True
+    assert {c["side"] for c in body["side_options"]} == {"east", "west"}
+    assert body["side_options"][0]["required_permit_zone"] == "143"
+
+
+def test_reverse_locate_no_match_reports_gracefully(monkeypatch):
+    monkeypatch.setattr(api_main, "reverse_geocode", lambda lat, lon: None)
+
+    r = client.post(
+        "/api/locations/reverse", json={"latitude": 41.9256, "longitude": -87.6406}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["in_chicago"] is False
+    assert body["side_options"] == []
+    assert body["notes"]
+
+
+def test_reverse_locate_rejects_out_of_range_coordinates():
+    r = client.post(
+        "/api/locations/reverse", json={"latitude": 200, "longitude": -87.6406}
+    )
+    assert r.status_code == 422
+
+
 _DECISION = {
     "decision": {
         "status": "LEGAL_UNTIL",

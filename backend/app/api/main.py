@@ -2,6 +2,7 @@
 
     POST /api/parking/analyze     run the parking agent over a structured request
     GET  /api/locations           the selector tree for the frontend
+    POST /api/locations/reverse   browser coordinates -> a matched block (no 3rd-party geocoder)
     GET  /api/health              liveness (also warms a cold Render dyno)
     POST /api/watches                     register a car-watch for daily monitoring
     GET  /api/watches/by-email            every active watch for an email (NOT verified -- see docs)
@@ -45,6 +46,7 @@ from app.api.schemas import (
     ReplaceWatchResponse,
     ResolveRequest,
     ResolveResponse,
+    ReverseGeocodeRequest,
     SetWatchOverrideResponse,
     SideCandidate,
     ToolCallView,
@@ -67,7 +69,8 @@ from app.locations.registry import (
     get_location,
     remember_location,
 )
-from app.locations.resolve import resolve_address
+from app.locations.resolve import ResolvedLocation, resolve_address
+from app.locations.reverse import reverse_geocode
 from app.models.decision import ParkingStatus
 from app.models.evidence import EvidenceStatus
 from app.models.requests import ParkingRequest
@@ -131,11 +134,9 @@ def _side_candidate(side: str, loc: ChicagoParkingLocation) -> SideCandidate:
     )
 
 
-@app.post("/api/locations/resolve", response_model=ResolveResponse)
-def resolve(payload: ResolveRequest) -> ResolveResponse:
-    resolved = resolve_address(
-        payload.number, payload.street.strip(), payload.zip_code.strip(), payload.side
-    )
+def _build_resolve_response(resolved: ResolvedLocation) -> ResolveResponse:
+    """Shared by the typed-address and reverse-geocode (coordinates) entry
+    points -- both produce the same ResolvedLocation shape from here on."""
     for loc in resolved.locations.values():
         remember_location(loc)
 
@@ -156,6 +157,33 @@ def resolve(payload: ResolveRequest) -> ResolveResponse:
         side_options=[_side_candidate(s, loc) for s, loc in resolved.locations.items()],
         notes=resolved.notes,
     )
+
+
+@app.post("/api/locations/resolve", response_model=ResolveResponse)
+def resolve(payload: ResolveRequest) -> ResolveResponse:
+    resolved = resolve_address(
+        payload.number, payload.street.strip(), payload.zip_code.strip(), payload.side
+    )
+    return _build_resolve_response(resolved)
+
+
+@app.post("/api/locations/reverse", response_model=ResolveResponse)
+def reverse_locate(payload: ReverseGeocodeRequest) -> ResolveResponse:
+    """"Use my current location": browser coordinates -> a matched Chicago
+    block. Uses only the City's own Street Center Lines dataset (the same one
+    the typed-address flow queries) -- no third-party geocoding service, no
+    new cost. The coordinates are used for this one lookup and never stored
+    (only the matched block/side, same as a typed address, is remembered)."""
+    resolved = reverse_geocode(payload.latitude, payload.longitude)
+    if resolved is None:
+        return ResolveResponse(
+            in_chicago=False,
+            notes=[
+                "Couldn't match your location to a supported Chicago street. "
+                "Try entering the address instead."
+            ],
+        )
+    return _build_resolve_response(resolved)
 
 
 def _status(value: str | None) -> ParkingStatus:

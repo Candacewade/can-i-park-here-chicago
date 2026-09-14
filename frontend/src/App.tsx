@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { analyze, fetchExamples, getWatch, resolveAddress } from "./api";
+import { analyze, fetchExamples, getWatch, resolveAddress, reverseGeocode } from "./api";
 import { AddressForm } from "./components/AddressForm";
 import { AgentInspector } from "./components/AgentInspector";
 import { BlockConfirm } from "./components/BlockConfirm";
@@ -56,6 +56,7 @@ export default function App() {
   const [when, setWhen] = useState<WhenInput>(defaultWhen());
 
   const [resolving, setResolving] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
@@ -138,6 +139,22 @@ export default function App() {
     return s?.summary ?? resolved.matched_address ?? "";
   }, [resolved, side]);
 
+  /** Shared by typed-address resolve and "use my location" -- both produce the
+   * same ResolveResponse shape. Returns true on success. */
+  const acceptResolved = (r: ResolveResponse, notFoundFallback: string): boolean => {
+    if (!r.in_chicago) {
+      setErr(r.notes[0] ?? notFoundFallback);
+      return false;
+    }
+    if (r.side_options.length === 0) {
+      setErr(r.notes[0] ?? "Couldn't match that to a Chicago street segment.");
+      return false;
+    }
+    setResolved(r);
+    setSide(r.suggested_side ?? r.side_options[0].side);
+    return true;
+  };
+
   const doResolve = async () => {
     setResolving(true);
     setErr(null);
@@ -145,24 +162,45 @@ export default function App() {
     setResolved(null);
     try {
       const r = await resolveAddress(address);
-      if (!r.in_chicago) {
-        setErr(
-          r.notes[0] ??
-            "That address isn't inside the supported City of Chicago coverage area.",
-        );
-        return;
-      }
-      if (r.side_options.length === 0) {
-        setErr(r.notes[0] ?? "Couldn't match that address to a Chicago street segment.");
-        return;
-      }
-      setResolved(r);
-      setSide(r.suggested_side ?? r.side_options[0].side);
+      acceptResolved(r, "That address isn't inside the supported City of Chicago coverage area.");
     } catch (e) {
       setErr(String((e as Error).message ?? e));
     } finally {
       setResolving(false);
     }
+  };
+
+  const doLocateMe = () => {
+    if (!("geolocation" in navigator)) {
+      setErr("Your browser doesn't support location access. Enter the address instead.");
+      return;
+    }
+    setErr(null);
+    setResult(null);
+    setResolved(null);
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        reverseGeocode(pos.coords.latitude, pos.coords.longitude)
+          .then((r) =>
+            acceptResolved(
+              r,
+              "Couldn't match your location to a supported Chicago block. Try entering the address instead.",
+            ),
+          )
+          .catch((e) => setErr(String((e as Error).message ?? e)))
+          .finally(() => setLocating(false));
+      },
+      (geoErr) => {
+        setLocating(false);
+        setErr(
+          geoErr.code === geoErr.PERMISSION_DENIED
+            ? "Location access was denied. You can enter the address instead."
+            : "Couldn't get your location. Try entering the address instead.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
   };
 
   const doAnalyze = async () => {
@@ -186,7 +224,7 @@ export default function App() {
     setErr(null);
   };
 
-  const busy = resolving || analyzing;
+  const busy = resolving || locating || analyzing;
   const readyToConfirmMove = !!(monitor && changing && result && locationId && !busy);
 
   return (
@@ -253,6 +291,8 @@ export default function App() {
                 onSubmit={doResolve}
                 examples={examples}
                 busy={resolving}
+                onLocateMe={doLocateMe}
+                locating={locating}
               />
             ) : (
               <BlockConfirm
@@ -276,9 +316,11 @@ export default function App() {
               <div className="card working" role="status" aria-live="polite">
                 <div className="spinner" aria-hidden="true" />
                 <p>
-                  {resolving
-                    ? "Matching the address to a Chicago street segment…"
-                    : "Checking City data — permit zones, street cleaning, closures, snow routes…"}
+                  {locating
+                    ? "Matching your location to a Chicago street segment…"
+                    : resolving
+                      ? "Matching the address to a Chicago street segment…"
+                      : "Checking City data — permit zones, street cleaning, closures, snow routes…"}
                 </p>
               </div>
             )}

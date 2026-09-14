@@ -33,7 +33,7 @@ the machine-readable implementation uses official City geography (see
 |---|---|
 | Dataset ID | `pr57-gg9e` |
 | Fields used | `street_nam`, `pre_dir`, `street_typ`, `l_f_add`/`l_t_add`/`r_f_add`/`r_t_add` (left/right address ranges), `fnode_id`/`tnode_id` (topology), `the_geom`, `trans_id` |
-| Use | canonical segment for an address; geometry for the side cross-product; endpoint nodes → cross-street names |
+| Use | canonical segment for an address; geometry for the side cross-product; endpoint nodes → cross-street names; also queried by `within_circle()` proximity (not just street name) for reverse geocoding "use my current location" — `app/locations/reverse.py` |
 
 ### Street Sweeping Zones — 2026
 

@@ -103,6 +103,38 @@ So the "citywide registry" is not a giant pre-generated file — it is a private
 cache that fills in as real addresses are looked up, backed by live official
 geometry.
 
+## Reverse geocoding — `app/locations/reverse.py`
+
+"Use my current location" (`POST /api/locations/reverse`, browser
+`navigator.geolocation`) turns coordinates into a plausible address using
+**only** the Street Center Lines dataset already in use above — no
+third-party geocoding service, no new external dependency, $0:
+
+```
+(lat, lon)
+  → within_circle() spatial query, pr57-gg9e, 150m radius
+    (the only place in the codebase that queries this dataset by proximity
+    rather than by street name -- everywhere else is name+number driven)
+  → nearest_point_on_segment() (app/geo.py) picks the closest candidate,
+    projecting the point onto each segment to get a distance + how far
+    along it (t ∈ [0,1])
+  → signed_side() (already used for forward resolution) decides left/right
+    of travel, choosing the L or R address-range field pair
+  → estimated house number = lo + t × (hi - lo) on that range
+  → handed to the EXISTING resolve_address(estimated_number, street, "")
+    -- re-verified from scratch (city boundary, side, cross streets,
+    sweeping zone) exactly as a typed address would be
+```
+
+This is deliberately an *estimate feeding a real re-verification*, not an
+authoritative answer on its own — `reverse_geocode()` never constructs a
+`ChicagoParkingLocation` directly. The frontend still shows the normal
+block/side confirmation step before anything runs; a wrong house-number
+guess just means confirming a different side/number, same as a typo in the
+typed-address flow would. No nearby segment (outside Chicago, or too far from
+any mapped street) → `None` → the endpoint reports it the same way an
+unmatched typed address is reported, never a raw error.
+
 ## Cross-dataset association
 
 The point of Slice 5: an address *anywhere* in Chicago drives the correct query
