@@ -489,3 +489,27 @@ def compose_email(
         body_text=render_text(doc),
         body_html=render_html(doc),
     )
+
+
+def compose_lookup_email(link: str) -> Email:
+    """The "find my watches" link email. Deliberately identical whether or not
+    the address has any active watches -- the endpoint that sends this must
+    not let a caller learn which emails are registered, so the email itself
+    carries no watch-count or list; the link decides that once opened."""
+    subject = "🔑 Manage your parking watches"
+    nodes: list = [
+        H1(subject),
+        P("Use the link below to see and manage the parking watches for this email address."),
+        Rule(),
+        Actions([("View my parking watches", link)]),
+        Rule(),
+        P(
+            "This link works for about 15 minutes. If you didn't request this, "
+            "you can safely ignore this email.",
+            muted=True,
+            small=True,
+        ),
+        P("Can I Park Here? · Chicago Parking Monitor", muted=True, small=True),
+    ]
+    doc = EmailDoc(subject, "Manage your parking watches.", nodes)
+    return Email(subject=subject, body_text=render_text(doc), body_html=render_html(doc))

@@ -225,7 +225,43 @@ POST   /api/watches/{id}/extend        { token, end_time }  -- SAME watch, later
                                        -> { watch_id, manage_token, end_time, through_display,
                                             status, move_by_display, urgent_alert, summary }
 POST   /api/monitor/run                run the pass now (X-Monitor-Token if MONITOR_TOKEN set)
+
+POST   /api/watches/lookup-request     { email } -> { sent: true } ALWAYS (see below)
+GET    /api/watches/by-email?token=... -> { watches: [...] }, each with its own manage_token
 ```
+
+### "Find my watches" — manage by email, not by device
+
+The home screen has an entry point ("Manage my parking watches") for someone
+who is not on the device/browser that has a watch in `localStorage` — email
+in, get a link, click it, see and edit every active watch for that address.
+
+There is no login on this app; a `manage_token` mailed to you is the only
+proof of ownership anything here uses. Extending that to "all my watches" the
+same way — rather than building actual accounts/passwords — means:
+
+1. `POST /api/watches/lookup-request` (`app/monitor/lookup_token.py`) mints a
+   signed, **stateless** token — `base64url({email, exp}) + "." + HMAC` — no
+   server-side row to create or expire. It's valid for **15 minutes**. The
+   endpoint emails a link (`compose_lookup_email`) and always responds
+   `{"sent": true}`, whether or not that address has any watches or the send
+   even succeeds — differentiating would let this endpoint check who's
+   registered.
+2. Clicking the link opens `/?manage-email=<token>`. `GET
+   /api/watches/by-email` verifies the token, then returns every `ACTIVE`
+   watch whose notification address matches (`notify.find_watch_ids_for_email`)
+   — each with its **own** `manage_token`, since the caller only proved
+   control of the email, not any specific watch, until now.
+3. The frontend (`WatchesByEmailPanel.tsx`) renders one card per watch with
+   working **Extend** / **Stop monitoring** inline, and a **Change parking
+   spot** link that hands off to the existing single-watch flow
+   (`/?manage=<id>&token=...`) rather than re-implementing address search for
+   a list of watches.
+
+The signing key is generated once per process start (no new secret to
+configure) — a Render restart invalidates outstanding lookup links, and the
+user just requests a new one; a 15-minute window makes that a minor
+inconvenience, not a correctness issue.
 
 ### Manage links & security
 
@@ -320,6 +356,15 @@ the stored active watch (refresh / new tab / return visit).
   → `POST …/replace` when "Change parking spot" has sent the user back through
   address → side → time → check. The **old watch stays active until the move is
   confirmed**.
+- **`EmailWatchLookup.tsx`** — always-visible home-screen card, independent of
+  `localStorage` state: email → `POST /api/watches/lookup-request` → generic
+  "check your email" confirmation (never reveals whether that address has any
+  watches).
+- **`WatchesByEmailPanel.tsx`** — what `/?manage-email=<token>` opens into
+  instead of the normal home screen: fetches `GET /api/watches/by-email`, one
+  card per active watch with its own inline Extend / Stop monitoring, and a
+  **Change parking spot** link that hands off to the existing single-watch
+  `/?manage=<id>&token=…` flow rather than re-implementing address search here.
 
 ## Production flows
 

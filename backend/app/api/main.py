@@ -4,6 +4,8 @@
     GET  /api/locations           the selector tree for the frontend
     GET  /api/health              liveness (also warms a cold Render dyno)
     POST /api/watches                     register a car-watch for daily monitoring
+    POST /api/watches/lookup-request      email a link to view/manage every watch for an address
+    GET  /api/watches/by-email            the page that link opens (token-gated by that link)
     GET  /api/watches/{id}                watch state (token-gated, no email echoed back)
     DELETE /api/watches/{id}              stop monitoring a watch (token-gated)
     GET  /api/watches/{id}/unsubscribe    email link -> confirmation page (no mutation)
@@ -37,6 +39,8 @@ from app.api.schemas import (
     ExampleAddress,
     ExtendWatchRequest,
     ExtendWatchResponse,
+    LookupWatchesRequest,
+    LookupWatchesResponse,
     MonitorRunResponse,
     ReplaceWatchRequest,
     ReplaceWatchResponse,
@@ -44,6 +48,8 @@ from app.api.schemas import (
     ResolveResponse,
     SideCandidate,
     ToolCallView,
+    WatchesByEmailResponse,
+    WatchListItem,
     WatchView,
 )
 from app.config import (
@@ -58,12 +64,15 @@ from app.locations.resolve import resolve_address
 from app.models.decision import ParkingStatus
 from app.models.requests import ParkingRequest
 from app.monitor import notify
+from app.monitor.compose import compose_lookup_email
+from app.monitor.lookup_token import create_lookup_token, verify_lookup_token
 from app.monitor.models import Watch, WatchStatus
 from app.monitor.run import run_monitor
 from app.monitor.store import get_store
 from app.rules.engine import _display as _display_ct  # America/Chicago long-form label
 from app.rules.engine import evaluate_parking
 from app.rules.gather import gather_evidence
+from app.services.email import send_email
 
 app = FastAPI(title="Can I Park Here? — Chicago", version="0.4.0")
 
@@ -307,6 +316,44 @@ def create_watch(payload: CreateWatchRequest) -> CreateWatchResponse:
         email_registered=registered,
         note="Email registered for notifications." if registered else _STORE_WRITE_FAILED,
     )
+
+
+@app.post("/api/watches/lookup-request", response_model=LookupWatchesResponse)
+def request_watch_lookup(payload: LookupWatchesRequest) -> LookupWatchesResponse:
+    """Email a link to view/manage every active watch for this address.
+
+    Always responds the same way regardless of whether the address has any
+    watches (or the send even succeeds) -- differentiating here would let this
+    endpoint be used to check whether an email is registered."""
+    token = create_lookup_token(payload.email)
+    link = f"{APP_BASE_URL}/?manage-email={quote(token)}"
+    email = compose_lookup_email(link)
+    try:
+        send_email(payload.email, email.subject, email.body_text, email.body_html)
+    except Exception:
+        pass
+    return LookupWatchesResponse(sent=True)
+
+
+@app.get("/api/watches/by-email", response_model=WatchesByEmailResponse)
+def list_watches_by_email(token: str = Query(...)) -> WatchesByEmailResponse:
+    """The page a lookup-request link opens to. `token` proves control of the
+    email (see app.monitor.lookup_token); watch_id/manage_token pairs are not
+    otherwise guessable, so this is not itself a capability leak."""
+    email = verify_lookup_token(token)
+    if email is None:
+        raise HTTPException(
+            status_code=401, detail="This link is invalid or has expired. Request a new one."
+        )
+    watches = get_store().load()
+    ids = notify.find_watch_ids_for_email(email)
+    items = [
+        WatchListItem(**_watch_view(w).model_dump(), manage_token=w.manage_token)
+        for w in watches.values()
+        if w.watch_id in ids and w.status is WatchStatus.ACTIVE
+    ]
+    items.sort(key=lambda w: w.end_time)
+    return WatchesByEmailResponse(watches=items)
 
 
 @app.get("/api/watches/{watch_id}", response_model=WatchView)

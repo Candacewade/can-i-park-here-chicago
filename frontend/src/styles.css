@@ -389,8 +389,10 @@ button.secondary:disabled {
   cursor: default;
 }
 
-/* pill buttons (monitor actions) */
-button.pill {
+/* pill buttons (monitor actions) -- `a.pill` is the same look for a plain
+   navigation link (e.g. "Change parking spot" from the multi-watch list) */
+button.pill,
+a.pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -405,25 +407,30 @@ button.pill {
   border: 1px solid var(--navy);
   background: #fff;
   color: var(--navy);
+  text-decoration: none;
   transition: transform 0.1s ease, background-color 0.12s ease;
 }
-button.pill:hover:not(:disabled) {
+button.pill:hover:not(:disabled),
+a.pill:hover {
   transform: translateY(-1px);
 }
 button.pill:disabled {
   opacity: 0.45;
   cursor: default;
 }
-button.pill.blue {
+button.pill.blue,
+a.pill.blue {
   color: var(--navy);
   border-color: var(--blue);
 }
-button.pill.violet {
+button.pill.violet,
+a.pill.violet {
   background: var(--blue-light);
   border-color: var(--navy);
   color: var(--navy);
 }
-button.pill.red {
+button.pill.red,
+a.pill.red {
   color: var(--red);
   border-color: var(--red);
 }

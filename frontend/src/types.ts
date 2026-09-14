@@ -121,6 +121,13 @@ export interface WatchView {
   end_time_local: string | null;
 }
 
+/** One row in the "find my watches" list -- unlike WatchView, carries its own
+ * manage_token since the caller only proved control of the email, not this
+ * specific watch, before seeing this list. */
+export interface WatchListItem extends WatchView {
+  manage_token: string;
+}
+
 export interface AddressInput {
   number: string;
   street: string;

@@ -208,6 +208,36 @@ class WatchView(BaseModel):
     end_time_local: str | None = None   # "YYYY-MM-DDTHH:MM" -- prefill the extend form
 
 
+class LookupWatchesRequest(BaseModel):
+    email: str
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        v = v.strip()
+        if not _EMAIL_RE.match(v):
+            raise ValueError("not a valid email address")
+        return v
+
+
+class LookupWatchesResponse(BaseModel):
+    """Always {"sent": true} -- identical whether or not the address has any
+    active watches, so this endpoint can't be used to check who's registered."""
+
+    sent: bool = True
+
+
+class WatchListItem(WatchView):
+    # Present here (unlike the single-watch WatchView) because the caller has
+    # no other way to get it -- they proved control of the email via the
+    # lookup token, not via already holding this watch's own manage_token.
+    manage_token: str
+
+
+class WatchesByEmailResponse(BaseModel):
+    watches: list[WatchListItem]
+
+
 class MonitorRunResponse(BaseModel):
     ran_at: datetime
     checked: int

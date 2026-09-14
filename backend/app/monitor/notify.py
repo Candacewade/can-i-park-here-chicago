@@ -36,6 +36,18 @@ def get_email(watch_id: str) -> str | None:
     return entry.get("email") if isinstance(entry, dict) else None
 
 
+def find_watch_ids_for_email(email: str) -> set[str]:
+    """Every watch_id notifying this address (case-insensitive). Used by the
+    "find my watches" lookup flow -- never exposed until the caller has proven
+    control of the address via a verified lookup token."""
+    norm = email.strip().lower()
+    return {
+        wid
+        for wid, entry in _load_map().items()
+        if isinstance(entry, dict) and (entry.get("email") or "").strip().lower() == norm
+    }
+
+
 def register_email(watch_id: str, email: str) -> bool:
     """Persist watch_id -> {email} in the private data store. Returns False only
     if the write fails (the operator can then add it to WATCH_NOTIFY_MAP)."""

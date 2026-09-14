@@ -6,6 +6,7 @@ import type {
   ExtendWatchResponse,
   ReplaceWatchResponse,
   ResolveResponse,
+  WatchListItem,
   WatchView,
   WhenInput,
 } from "./types";
@@ -103,6 +104,24 @@ export function extendWatch(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ token, end_time: `${endLocal}:00` }),
   }).then((r) => json<ExtendWatchResponse>(r));
+}
+
+/** "Find my watches": email a secure link, no result returned here on purpose
+ * -- the response is identical whether or not the address has any watches. */
+export function requestWatchLookup(email: string): Promise<{ sent: boolean }> {
+  return fetch(`${BASE}/api/watches/lookup-request`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: email.trim() }),
+  }).then((r) => json<{ sent: boolean }>(r));
+}
+
+/** The page that link opens: every active watch for the email the token
+ * proves, each with its own manage_token so it can be extended/stopped. */
+export function listWatchesByEmail(token: string): Promise<WatchListItem[]> {
+  return fetch(`${BASE}/api/watches/by-email?token=${encodeURIComponent(token)}`)
+    .then((r) => json<{ watches: WatchListItem[] }>(r))
+    .then((r) => r.watches);
 }
 
 export function replaceWatch(
