@@ -53,20 +53,48 @@ repo — no `contents: write`, no commit step; state goes to the private repo vi
 
 | workflow | cron | mode | agent |
 |---|---|---|---|
-| `.github/workflows/monitor.yml` | `17 12` + backups `17 13`, `37 13` UTC (~06:17–08:37 CT) | **full** — morning summary, reminders, urgent | yes, when a runtime token is configured |
-| `.github/workflows/urgent.yml` | `0 * * * *` (hourly) | **urgent poll** — deterministic; acts only on a *new* urgent condition | only for a watch that has a new urgent condition |
+| `.github/workflows/monitor.yml` | `17 8` + backups `17 9`, `37 9` UTC (targets ~06:17–07:17 CT delivery, ~4h earlier than that on the cron itself) | **full** — morning summary, reminders, urgent | yes, when a runtime token is configured |
+| `.github/workflows/urgent.yml` | `9 * * * *` (hourly, offset from `:00`) | **urgent poll** — deterministic; acts only on a *new* urgent condition | only for a watch that has a new urgent condition |
 
-The daily workflow runs three times a morning — a primary at 12:17 UTC and two
-backups at 13:17 and 13:37 — because GitHub sometimes delays or drops a scheduled
-run. `schedule.py`'s `morning:<date>` dedup means a backup that fires after the
-primary already sent does nothing: **still exactly one morning email per day.**
+The daily workflow runs three times a morning — a primary and two backups —
+because GitHub sometimes delays or drops a scheduled run. `schedule.py`'s
+`morning:<date>` dedup means a backup that fires after the primary already sent
+does nothing: **still exactly one morning email per day.**
+
+**Observed reality (checked via the Actions API, Sept 2–8):** GitHub's `schedule`
+delivery for this repo has been delayed by **hours, not minutes** — the hourly
+urgent poll (nominally every hour) has actually been firing every 2–6 hours, and
+the daily morning pass landed as late as ~5.5 hours after its cron target. Each
+job itself runs in well under a minute once GitHub actually starts it (no
+code-side hang, no queue pileup, no cancelled runs) — the delay is entirely in
+GitHub deciding when to fire the `schedule` event, which GitHub does not give any
+SLA for. Because the delay affects this repo's scheduled events broadly rather
+than one specific timestamp, adding more backup cron entries raises the odds of
+*an* email arriving but does not make it arrive on time — all three tend to slip
+by roughly the same number of hours together. Two things help: GitHub's own docs
+flag the top of the hour as the highest-load slot, so `urgent.yml` no longer
+fires at `:00`; and, as a blunter workaround, `monitor.yml`'s cron times are set
+**~4 hours earlier** than the actual desired send time, so the observed delay
+lands the real send close to the original intended morning window instead of
+near noon. That's a workaround for the delay's observed *size*, not a fix for
+the delay itself — if GitHub's behavior changes, these times will need
+re-tuning, and there's no guarantee the delay stays close to 4 hours.
+
+If the morning email must land at a dependable time regardless of how GitHub's
+delay drifts, the durable fix is to stop depending on GitHub's `schedule`
+trigger for that email and instead call **`POST /api/monitor/run`** from an
+external, more punctual clock (see below) — `workflow_dispatch`/API-triggered
+runs aren't subject to the same low-priority `schedule` queue.
 
 The repo is public, so Actions minutes are free and unmetered. On a private repo
 this is ~1,100 min/month (under the 2,000 free tier) — raise the hourly interval
 if you register many watches.
 
-`POST /api/monitor/run` (optionally guarded by `X-Monitor-Token`) is an
-alternative trigger for an external pinger.
+`POST /api/monitor/run` (optionally guarded by `X-Monitor-Token`, set via the
+`MONITOR_TOKEN` env var) is an alternative trigger for an external pinger — e.g.
+a free service like cron-job.org hitting the deployed Render URL at a fixed
+America/Chicago time. This is currently documented but not wired up to an
+external pinger; nothing calls it on a schedule today.
 
 ### Full pass — `python -m app.monitor`
 

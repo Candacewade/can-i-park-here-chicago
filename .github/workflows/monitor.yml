@@ -15,11 +15,25 @@ name: Parking monitor (daily)
 # drops the scheduled run. The `morning:<date>` dedup in app/monitor/schedule.py
 # means a backup that runs after the primary already emailed does nothing --
 # you still get exactly one morning email per day.
+#
+# In practice, observed GitHub `schedule` delivery for this repo has been
+# delayed by HOURS (not minutes) on multiple days -- see docs/monitoring.md
+# (runs landing ~4-5.5h after their cron target were typical in the Sept 2026
+# sample). All three crons here are delayed roughly together, so they raise
+# the odds of at least one run happening (protecting against a single dropped
+# event) but do NOT fix lateness on their own. To compensate, the times below
+# are set ~4 hours earlier than the actual desired send time -- i.e. still
+# aimed at the originally-intended morning window (~06:17-07:17 America/
+# Chicago), but relying on the observed delay to land the real send there
+# rather than firing on time. This is a workaround for GitHub's delay, not a
+# fix for it -- if delay behavior changes, emails will arrive correspondingly
+# earlier. For dependable exact timing, use `POST /api/monitor/run`
+# (docs/monitoring.md) from an external, more punctual scheduler instead.
 on:
   schedule:
-    - cron: "17 12 * * *"   # primary  -- 12:17 UTC (~06:17-07:17 America/Chicago)
-    - cron: "17 13 * * *"   # backup 1 -- 13:17 UTC
-    - cron: "37 13 * * *"   # backup 2 -- 13:37 UTC
+    - cron: "17 8 * * *"    # primary  -- 08:17 UTC (targets ~06:17-07:17 America/Chicago after the observed ~4h delay)
+    - cron: "17 9 * * *"    # backup 1 -- 09:17 UTC
+    - cron: "37 9 * * *"    # backup 2 -- 09:37 UTC
   workflow_dispatch: {}
 
 permissions:
@@ -32,6 +46,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend

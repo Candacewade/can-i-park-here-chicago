@@ -8,9 +8,15 @@ name: Parking monitor (urgent poll)
 #
 # Runtime user data lives in a separate PRIVATE repo (GH_DATA_TOKEN); nothing is
 # written to this public repo. The repo is public, so Actions minutes are free.
+#
+# The cron fires at :09 rather than the top of the hour on purpose: GitHub's own
+# docs warn that "high load times include the start of every hour" and that
+# schedule delivery is more likely to be delayed right at :00. See
+# docs/monitoring.md for the (much larger, multi-hour) delays actually observed
+# on this repo and why a real fix needs an external trigger, not cron tuning.
 on:
   schedule:
-    - cron: "0 * * * *"     # hourly
+    - cron: "9 * * * *"     # hourly, offset from :00 to avoid top-of-hour load
   workflow_dispatch: {}
 
 permissions:
@@ -23,6 +29,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
