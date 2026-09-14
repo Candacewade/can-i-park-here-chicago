@@ -262,17 +262,45 @@ _STORE_WRITE_FAILED = (
 )
 
 
+def _active_watch_for(email: str, location_id: str, watches: dict[str, Watch]) -> Watch | None:
+    """An ACTIVE watch already emailing this address for this exact spot, if any."""
+    email_norm = email.strip().lower()
+    for w in watches.values():
+        if (
+            w.status is WatchStatus.ACTIVE
+            and w.location_id == location_id
+            and (notify.get_email(w.watch_id) or "").strip().lower() == email_norm
+        ):
+            return w
+    return None
+
+
 @app.post("/api/watches", response_model=CreateWatchResponse, status_code=201)
 def create_watch(payload: CreateWatchRequest) -> CreateWatchResponse:
+    store = get_store()
+    watches = store.load()
+
+    # A second POST for the same email + the same spot (double-click, a retry,
+    # a different browser/device that doesn't know about the first one) used
+    # to create a second independent ACTIVE watch. Each watch emails on its
+    # own, so the same morning produced several near-identical emails. Fold
+    # into the existing watch's slot instead -- same resolve-old+create-new
+    # pattern as POST .../replace -- so at most one active watch ever emails
+    # a given address about a given spot.
+    duplicate = _active_watch_for(payload.email, payload.location_id, watches)
+
     watch = _new_watch(
         payload.location_id, payload.start_time, payload.end_time, payload.permit_zone
     )
-    store = get_store()
-    watches = store.load()
+    if duplicate is not None:
+        duplicate.status = WatchStatus.RESOLVED
     watches[watch.watch_id] = watch
     store.save(watches)
 
     registered = notify.register_email(watch.watch_id, payload.email)
+    if duplicate is not None:
+        notify.forget(duplicate.watch_id)
+
     return CreateWatchResponse(
         watch_id=watch.watch_id,
         manage_token=watch.manage_token,

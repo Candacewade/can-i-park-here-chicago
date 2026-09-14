@@ -75,6 +75,42 @@ def test_create_rejects_bad_email(_mem):
     assert client.post("/api/watches", json=_payload(email="not-an-email")).status_code == 422
 
 
+def test_create_same_email_same_spot_replaces_not_duplicates(_mem):
+    """Regression: a second POST for the same email + same spot (double-click,
+    retry, a second browser/device) used to leave TWO active watches, each
+    emailing independently -> multiple near-identical daily emails."""
+    first = _create()
+    second = _create()  # same default email + location_id as `first`
+
+    assert first["watch_id"] != second["watch_id"]
+    assert _mem.w[first["watch_id"]].status is WatchStatus.RESOLVED
+    assert _mem.w[second["watch_id"]].status is WatchStatus.ACTIVE
+    # only the surviving watch is registered for email
+    assert first["watch_id"] not in _mem.notify_map
+    assert _mem.notify_map[second["watch_id"]] == "driver@example.com"
+    active = [w for w in _mem.w.values() if w.status is WatchStatus.ACTIVE]
+    assert len(active) == 1
+
+
+def test_create_same_email_different_spot_is_not_deduped(_mem):
+    """Watching two different spots with the same email is legitimate (e.g.
+    two cars) and must not collapse into one watch."""
+    first = _create()
+    second = _create(location_id="george-3200w-north")
+
+    assert _mem.w[first["watch_id"]].status is WatchStatus.ACTIVE
+    assert _mem.w[second["watch_id"]].status is WatchStatus.ACTIVE
+    assert len(_mem.w) == 2
+
+
+def test_create_different_email_same_spot_is_not_deduped(_mem):
+    a = _create(email="a@example.com")
+    b = _create(email="b@example.com")
+    assert _mem.w[a["watch_id"]].status is WatchStatus.ACTIVE
+    assert _mem.w[b["watch_id"]].status is WatchStatus.ACTIVE
+    assert len(_mem.w) == 2
+
+
 # --- read / delete are token-gated ----------------------------------
 
 def test_get_and_delete_require_the_token(_mem):

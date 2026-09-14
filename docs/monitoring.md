@@ -186,6 +186,13 @@ deep links / a confirmation page; none of them mutate on open.
 ```
 POST   /api/watches                    { location_id, start_time, end_time, permit_zone, email }
                                        -> { watch_id, manage_token, email_registered, note }
+                                       -- if that email already has an ACTIVE watch on this
+                                          exact location_id (double-click, retry, a second
+                                          browser/device that doesn't know about the first),
+                                          that watch is resolved and replaced by this one
+                                          instead of leaving two active watches emailing
+                                          independently. Different location_id -> untouched
+                                          (tracking two spots with one email is legitimate).
 GET    /api/watches/{id}?token=...     state + location_summary + through_display (no email); token-gated
 DELETE /api/watches/{id}?token=...     stop this watch -> status: resolved; token-gated
 GET    /api/watches/{id}/unsubscribe?token=...   the link in every email -> confirmation page ONLY (no mutation)
