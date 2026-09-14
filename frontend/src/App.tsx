@@ -170,27 +170,33 @@ export default function App() {
     }
   };
 
+  /** Shared by "use my location" and "pick on a map" -- both end up with a
+   * plain (lat, lon) and hand it to the same reverse-geocode pipeline. */
+  const locateFromCoords = (lat: number, lon: number) => {
+    setErr(null);
+    setResult(null);
+    setResolved(null);
+    setLocating(true);
+    reverseGeocode(lat, lon)
+      .then((r) =>
+        acceptResolved(
+          r,
+          "Couldn't match that location to a supported Chicago block. Try entering the address instead.",
+        ),
+      )
+      .catch((e) => setErr(String((e as Error).message ?? e)))
+      .finally(() => setLocating(false));
+  };
+
   const doLocateMe = () => {
     if (!("geolocation" in navigator)) {
       setErr("Your browser doesn't support location access. Enter the address instead.");
       return;
     }
     setErr(null);
-    setResult(null);
-    setResolved(null);
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        reverseGeocode(pos.coords.latitude, pos.coords.longitude)
-          .then((r) =>
-            acceptResolved(
-              r,
-              "Couldn't match your location to a supported Chicago block. Try entering the address instead.",
-            ),
-          )
-          .catch((e) => setErr(String((e as Error).message ?? e)))
-          .finally(() => setLocating(false));
-      },
+      (pos) => locateFromCoords(pos.coords.latitude, pos.coords.longitude),
       (geoErr) => {
         setLocating(false);
         setErr(
@@ -293,6 +299,7 @@ export default function App() {
                 busy={resolving}
                 onLocateMe={doLocateMe}
                 locating={locating}
+                onMapPick={locateFromCoords}
               />
             ) : (
               <BlockConfirm

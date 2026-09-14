@@ -135,6 +135,66 @@ typed-address flow would. No nearby segment (outside Chicago, or too far from
 any mapped street) → `None` → the endpoint reports it the same way an
 unmatched typed address is reported, never a raw error.
 
+## Map picker — `frontend/src/components/MapPicker.tsx`
+
+"Pick on a map" (next to "Use my current location") is a fully self-hosted,
+$0 interactive map with a live "you are here" dot. Tapping it hands the
+tapped `(lat, lon)` to the exact same `reverse_geocode()` flow above — the
+map is only ever an *input method* for coordinates, never a new data path.
+
+**Stack** (all free, open source, no account/key):
+[MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) (a pre-paywall
+Mapbox GL JS fork) + [pmtiles](https://github.com/protomaps/pmtiles) (reads a
+single static tile file over HTTP range requests — no tile server) +
+[`@protomaps/basemaps`](https://github.com/protomaps/basemaps) (generates the
+MapLibre style/layers for the Protomaps basemap vector schema). The blue dot
+is MapLibre's built-in `GeolocateControl`, backed by the same
+`navigator.geolocation` the "Use my current location" button already uses —
+no new browser API.
+
+**Map tiles: `frontend/public/chicago.pmtiles` (~64MB, committed to the
+repo).** This is a Chicago-only extract of
+[Protomaps' daily OSM-derived basemap build](https://docs.protomaps.com/basemaps/downloads),
+built once with their free `pmtiles` CLI (a small Go binary,
+[releases](https://github.com/protomaps/go-pmtiles/releases)) — it pulls
+*only* the bytes for the requested bounding box via HTTP range requests
+against the remote build, not the ~120GB planet file:
+
+```
+pmtiles extract https://build.protomaps.com/<YYYYMMDD>.pmtiles chicago.pmtiles \
+  --bbox=-87.955,41.63,-87.5,42.04
+```
+
+(`<YYYYMMDD>` = a recent date; Protomaps keeps roughly the last few days of
+daily builds live at that URL — check `curl -I` on a candidate date first.)
+The bbox comfortably covers the city; z0–15 (the source's full range) came to
+64MB. **This step needs to be re-run only if the data goes noticeably stale
+or the covered area needs to change** — it is not part of any build/deploy
+process, and re-running it grows the git history by another ~64MB each time,
+so don't do it casually.
+
+Once extracted, the file is served as a plain static asset (same as any
+other file in `frontend/public/`) — Vercel's existing free hosting, no new
+infrastructure. `MapPicker.tsx` references it via
+`pmtiles://<origin>/chicago.pmtiles`.
+
+**Fonts and icons** (`glyphs`/`sprite` in the MapLibre style) are referenced
+directly from Protomaps' own free, keyless, GitHub-Pages-hosted companion
+assets (`protomaps.github.io/basemaps-assets/...`) rather than self-hosted —
+static file serving with no rate limit, not a live queried service, so this
+was judged consistent with "no new external dependency" without needing a
+separate sign-off; unlike the tile data it's a handful of KB per session, not
+a 64MB asset worth bundling into this repo.
+
+**Attribution:** the vector source's `attribution` field carries "©
+Protomaps © OpenStreetMap" (ODbL requires the OpenStreetMap credit); MapLibre
+renders it automatically via its attribution control.
+
+**Performance:** `MapPicker` is loaded via `React.lazy()` — MapLibre GL is
+~300KB gzipped, so it's fetched only when someone actually opens the map, not
+on every page load (`AddressForm.tsx`'s bundle stays ~72KB gzipped either
+way).
+
 ## Cross-dataset association
 
 The point of Slice 5: an address *anywhere* in Chicago drives the correct query

@@ -1,6 +1,12 @@
+import { lazy, Suspense, useState } from "react";
 import type { AddressInput, ExampleAddress } from "../types";
 import { Icon } from "./Icon";
 import { Step } from "./Step";
+
+// MapLibre GL + the basemap/pmtiles glue is ~350KB -- split it into its own
+// chunk so it's only fetched when someone actually opens the map, not on
+// every page load.
+const MapPicker = lazy(() => import("./MapPicker").then((m) => ({ default: m.MapPicker })));
 
 interface Props {
   value: AddressInput;
@@ -12,6 +18,9 @@ interface Props {
    * (e.g. the browser has no geolocation API). */
   onLocateMe?: () => void;
   locating?: boolean;
+  /** "Pick on a map" -- undefined hides the button (e.g. tests that don't
+   * need the real map). Called with the tapped point's (lat, lon). */
+  onMapPick?: (lat: number, lon: number) => void;
 }
 
 export function AddressForm({
@@ -22,7 +31,9 @@ export function AddressForm({
   busy,
   onLocateMe,
   locating,
+  onMapPick,
 }: Props) {
+  const [mapOpen, setMapOpen] = useState(false);
   const set = (patch: Partial<AddressInput>) => onChange({ ...value, ...patch });
   const ready = value.number.trim() && value.street.trim();
 
@@ -54,10 +65,37 @@ export function AddressForm({
               <Icon name="shield" size={14} /> Your coordinates are sent once to match the
               nearest block, then discarded — never stored.
             </p>
-            <p className="note" style={{ textAlign: "center", margin: "10px 0" }}>
-              or enter it yourself
-            </p>
           </>
+        )}
+
+        {onMapPick && (
+          <>
+            <button
+              type="button"
+              className="secondary wide"
+              disabled={busy}
+              onClick={() => setMapOpen((v) => !v)}
+            >
+              <Icon name="pin" size={16} />
+              {mapOpen ? "Hide map" : "Pick on a map"}
+            </button>
+            {mapOpen && (
+              <Suspense fallback={<div className="map-picker" aria-busy="true" />}>
+                <MapPicker
+                  onPick={(lat, lon) => {
+                    setMapOpen(false);
+                    onMapPick(lat, lon);
+                  }}
+                />
+              </Suspense>
+            )}
+          </>
+        )}
+
+        {(onLocateMe || onMapPick) && (
+          <p className="note" style={{ textAlign: "center", margin: "10px 0" }}>
+            or enter it yourself
+          </p>
         )}
         <div className="row">
           <label className="narrow">
