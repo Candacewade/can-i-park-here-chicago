@@ -370,6 +370,11 @@ client; `APP_BASE_URL` falls back to the first non-localhost `FRONTEND_ORIGINS`.
 
 `frontend/src/monitor.ts` owns persistence — `{watchId, token, email,
 locationSummary, throughDisplay}` in `localStorage` (`ciph_monitor`), no account.
+It also remembers the last-entered residential permit zone on its own key
+(`ciph_permit_zone`, `save/loadRememberedPermitZone`) so it prefills on a
+returning visit, independent of any specific watch or address — again just
+this browser, no account. It's never cleared by a blank field, only ever
+overwritten by a new non-blank entry.
 
 **Startup precedence** (`resolveStartupMonitor`): an explicit
 `/?manage=<id>&token=<token>` email link identifies the watch the user wants to

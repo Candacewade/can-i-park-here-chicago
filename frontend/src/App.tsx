@@ -13,12 +13,14 @@ import { ResultCard } from "./components/ResultCard";
 import { SiteFooter } from "./components/SiteFooter";
 import type { LinkStatus } from "./monitor";
 import {
+  loadRememberedPermitZone,
   loadStoredMonitor,
   needsHydration,
   readManageAction,
   readManageLink,
   resolveStartupMonitor,
   saveMonitor,
+  saveRememberedPermitZone,
 } from "./monitor";
 import type {
   AddressInput,
@@ -42,7 +44,7 @@ function defaultWhen(): WhenInput {
     start_time: "19:00",
     end_date: isoDate(tomorrow),
     end_time: "09:00",
-    permit_zone: "",
+    permit_zone: loadRememberedPermitZone(),
   };
 }
 
@@ -77,6 +79,12 @@ export default function App() {
   useEffect(() => {
     fetchExamples().then(setExamples).catch(() => setExamples([]));
   }, []);
+
+  // Remember the permit zone across visits/addresses -- no account, just this
+  // browser. Never clears it when the field goes blank (see monitor.ts).
+  useEffect(() => {
+    saveRememberedPermitZone(when.permit_zone);
+  }, [when.permit_zone]);
 
   // 1. A capability link wins over localStorage: verify it, then adopt or reject.
   useEffect(() => {

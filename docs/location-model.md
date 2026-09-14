@@ -76,6 +76,16 @@ The compass side is derived, then confirmed:
 to the suggestion). The rule engine only ever sees a concrete, confirmed side; a
 watch stores the confirmed side. We never silently guess.
 
+**Each `side_options` entry also carries `required_permit_zone` /
+`permit_zone_is_buffer`** (`app/api/main.py:_side_candidate`) — a real,
+block-and-side-exact lookup against the same `qiag-khha` dataset the rule
+engine itself uses (`get_residential_zone_evidence`), not a neighborhood-level
+guess. The frontend (`BlockConfirm.tsx`) uses it to prefill the permit-zone
+field when empty, and to flag a mismatch if the user's entered/remembered zone
+differs from what this specific block actually requires. A failed lookup just
+omits the field (`side_options[].required_permit_zone: null`) — it never
+fabricates a zone number.
+
 ## The registry
 
 `get_location(location_id)`:

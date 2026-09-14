@@ -61,9 +61,15 @@ from app.config import (
     MONITOR_TOKEN,
     resolve_claude_cli,
 )
-from app.locations.registry import LocationNotFoundError, get_location, remember_location
+from app.locations.registry import (
+    ChicagoParkingLocation,
+    LocationNotFoundError,
+    get_location,
+    remember_location,
+)
 from app.locations.resolve import resolve_address
 from app.models.decision import ParkingStatus
+from app.models.evidence import EvidenceStatus
 from app.models.requests import ParkingRequest
 from app.monitor import notify
 from app.monitor.models import Watch, WatchOverride, WatchStatus
@@ -73,6 +79,7 @@ from app.monitor.store import get_store
 from app.rules.engine import _display as _display_ct  # America/Chicago long-form label
 from app.rules.engine import evaluate_parking
 from app.rules.gather import gather_evidence
+from app.services.residential_zones import get_residential_zone_evidence
 
 app = FastAPI(title="Can I Park Here? — Chicago", version="0.4.0")
 
@@ -102,6 +109,28 @@ def location_examples() -> list[ExampleAddress]:
     return _EXAMPLES
 
 
+def _side_candidate(side: str, loc: ChicagoParkingLocation) -> SideCandidate:
+    """Attach the block/side's actual required permit zone, straight from the
+    same City dataset (qiag-khha) the rule engine uses -- a real answer, not a
+    neighborhood-level guess. Best-effort: a lookup failure just omits it."""
+    required_zone = None
+    is_buffer = False
+    try:
+        evidence = get_residential_zone_evidence(loc)
+        if evidence.status == EvidenceStatus.VERIFIED:
+            required_zone = evidence.zone_required
+            is_buffer = evidence.is_buffer
+    except Exception:
+        pass
+    return SideCandidate(
+        side=side,
+        location_id=loc.location_id,
+        summary=loc.human_summary(),
+        required_permit_zone=required_zone,
+        permit_zone_is_buffer=is_buffer,
+    )
+
+
 @app.post("/api/locations/resolve", response_model=ResolveResponse)
 def resolve(payload: ResolveRequest) -> ResolveResponse:
     resolved = resolve_address(
@@ -124,10 +153,7 @@ def resolve(payload: ResolveRequest) -> ResolveResponse:
         longitude=suggested.longitude if suggested else None,
         suggested_side=resolved.suggested_side,
         side_confidence=resolved.side_confidence,
-        side_options=[
-            SideCandidate(side=s, location_id=loc.location_id, summary=loc.human_summary())
-            for s, loc in resolved.locations.items()
-        ],
+        side_options=[_side_candidate(s, loc) for s, loc in resolved.locations.items()],
         notes=resolved.notes,
     )
 

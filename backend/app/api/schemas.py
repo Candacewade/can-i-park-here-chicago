@@ -30,6 +30,11 @@ class SideCandidate(BaseModel):
     side: str
     location_id: str
     summary: str
+    # Deterministic, from the same City "Permit Parking Zones" dataset the
+    # rule engine itself uses (qiag-khha) -- not a neighborhood-level guess.
+    # None + not a buffer zone means no residential permit is required here.
+    required_permit_zone: str | None = None
+    permit_zone_is_buffer: bool = False
 
 
 class ResolveResponse(BaseModel):

@@ -3,11 +3,13 @@ import {
   applyExtend,
   clearManageLinkFromUrl,
   isLaterLocal,
+  loadRememberedPermitZone,
   loadStoredMonitor,
   needsHydration,
   readManageLink,
   resolveStartupMonitor,
   saveMonitor,
+  saveRememberedPermitZone,
 } from "./monitor";
 import type { ExtendWatchResponse, WatchView } from "./types";
 
@@ -191,5 +193,27 @@ describe("extend helpers", () => {
     expect(next.watchId).toBe("wch_A");
     expect(next.token).toBe("tokA-000000000000");
     expect(next.email).toBe("wade.candace1@gmail.com");
+  });
+});
+
+describe("remembered permit zone", () => {
+  it("round-trips a saved value", () => {
+    saveRememberedPermitZone("143");
+    expect(loadRememberedPermitZone()).toBe("143");
+  });
+
+  it("returns empty string when nothing is stored", () => {
+    expect(loadRememberedPermitZone()).toBe("");
+  });
+
+  it("trims whitespace before saving", () => {
+    saveRememberedPermitZone("  143  ");
+    expect(loadRememberedPermitZone()).toBe("143");
+  });
+
+  it("does not overwrite a saved value with a blank one", () => {
+    saveRememberedPermitZone("143");
+    saveRememberedPermitZone("");
+    expect(loadRememberedPermitZone()).toBe("143");
   });
 });

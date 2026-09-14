@@ -11,6 +11,11 @@ export interface SideCandidate {
   side: string;
   location_id: string;
   summary: string;
+  /** From the City's own Permit Parking Zones dataset for this exact block +
+   * side -- not a neighborhood-level guess. Null + not a buffer zone means no
+   * residential permit is required here. */
+  required_permit_zone: string | null;
+  permit_zone_is_buffer: boolean;
 }
 
 export interface ResolveResponse {

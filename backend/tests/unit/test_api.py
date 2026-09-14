@@ -21,31 +21,40 @@ def test_examples_endpoint():
     assert {"label", "number", "street", "zip_code"} <= body[0].keys()
 
 
-def test_resolve_endpoint(monkeypatch):
+def _mk_location(s):
     from app.locations.registry import ChicagoParkingLocation
+
+    return ChicagoParkingLocation(
+        location_id=f"n-clark-st-2400-{s}", neighborhood="Lincoln Park",
+        street_name="N Clark St", from_cross_street="W Fullerton Pkwy",
+        to_cross_street="W Arlington Pl", side=s, address_parity="even",
+        address_number=2400, address_range_low=2400, address_range_high=2444,
+        street_sweeping_ward="43", street_sweeping_section="03",
+        latitude=41.9256, longitude=-87.6406,
+    )
+
+
+def _fake_resolve_two_sides(number, street, zip_code, side=None):
     from app.locations.resolve import ResolvedLocation
 
-    def mk(s):
-        return ChicagoParkingLocation(
-            location_id=f"n-clark-st-2400-{s}", neighborhood="Lincoln Park",
-            street_name="N Clark St", from_cross_street="W Fullerton Pkwy",
-            to_cross_street="W Arlington Pl", side=s, address_parity="even",
-            address_number=2400, address_range_low=2400, address_range_high=2444,
-            street_sweeping_ward="43", street_sweeping_section="03",
-            latitude=41.9256, longitude=-87.6406,
-        )
+    return ResolvedLocation(
+        query="2400 N Clark St", in_chicago=True,
+        matched_address="2400 N CLARK ST, CHICAGO, IL, 60614",
+        neighborhood="Lincoln Park", suggested_side="west", side_confidence="high",
+        side_options=["east", "west"],
+        locations={"east": _mk_location("east"), "west": _mk_location("west")},
+    )
 
-    def fake_resolve(number, street, zip_code, side=None):
-        return ResolvedLocation(
-            query="2400 N Clark St", in_chicago=True,
-            matched_address="2400 N CLARK ST, CHICAGO, IL, 60614",
-            neighborhood="Lincoln Park", suggested_side="west", side_confidence="high",
-            side_options=["east", "west"],
-            locations={"east": mk("east"), "west": mk("west")},
-        )
 
-    monkeypatch.setattr(api_main, "resolve_address", fake_resolve)
+def test_resolve_endpoint(monkeypatch):
+    from app.models.evidence import EvidenceStatus, ResidentialZoneEvidence
+
+    monkeypatch.setattr(api_main, "resolve_address", _fake_resolve_two_sides)
     monkeypatch.setattr(api_main, "remember_location", lambda loc: None)
+    monkeypatch.setattr(
+        api_main, "get_residential_zone_evidence",
+        lambda loc: ResidentialZoneEvidence(status=EvidenceStatus.UNAVAILABLE),
+    )
 
     r = client.post(
         "/api/locations/resolve",
@@ -58,6 +67,83 @@ def test_resolve_endpoint(monkeypatch):
     assert body["suggested_side"] == "west"
     assert {c["side"] for c in body["side_options"]} == {"east", "west"}
     assert body["street_sweeping_ward"] == "43"
+
+
+# --- resolve: required_permit_zone, straight from City data, not a guess ---
+
+def _zone_evidence(status, zone_required=None, is_buffer=False):
+    from app.models.evidence import EvidenceStatus, ResidentialZoneEvidence
+
+    return ResidentialZoneEvidence(
+        status=EvidenceStatus[status], zone_required=zone_required, is_buffer=is_buffer,
+    )
+
+
+def test_resolve_surfaces_the_verified_required_zone(monkeypatch):
+    monkeypatch.setattr(api_main, "resolve_address", _fake_resolve_two_sides)
+    monkeypatch.setattr(api_main, "remember_location", lambda loc: None)
+    monkeypatch.setattr(
+        api_main, "get_residential_zone_evidence",
+        lambda loc: _zone_evidence("VERIFIED", zone_required="143"),
+    )
+
+    r = client.post(
+        "/api/locations/resolve",
+        json={"number": 2400, "street": "N Clark St", "zip_code": "60614"},
+    )
+    for c in r.json()["side_options"]:
+        assert c["required_permit_zone"] == "143"
+        assert c["permit_zone_is_buffer"] is False
+
+
+def test_resolve_surfaces_buffer_zone(monkeypatch):
+    monkeypatch.setattr(api_main, "resolve_address", _fake_resolve_two_sides)
+    monkeypatch.setattr(api_main, "remember_location", lambda loc: None)
+    monkeypatch.setattr(
+        api_main, "get_residential_zone_evidence",
+        lambda loc: _zone_evidence("VERIFIED", zone_required="100", is_buffer=True),
+    )
+
+    r = client.post(
+        "/api/locations/resolve",
+        json={"number": 2400, "street": "N Clark St", "zip_code": "60614"},
+    )
+    assert r.json()["side_options"][0]["permit_zone_is_buffer"] is True
+
+
+def test_resolve_omits_zone_when_lookup_unavailable(monkeypatch):
+    """A failed/unavailable zone lookup must never surface a fabricated zone --
+    it's just silently omitted, same as any other best-effort enrichment."""
+    monkeypatch.setattr(api_main, "resolve_address", _fake_resolve_two_sides)
+    monkeypatch.setattr(api_main, "remember_location", lambda loc: None)
+    monkeypatch.setattr(
+        api_main, "get_residential_zone_evidence",
+        lambda loc: _zone_evidence("UNAVAILABLE"),
+    )
+
+    r = client.post(
+        "/api/locations/resolve",
+        json={"number": 2400, "street": "N Clark St", "zip_code": "60614"},
+    )
+    assert r.status_code == 200
+    for c in r.json()["side_options"]:
+        assert c["required_permit_zone"] is None
+
+
+def test_resolve_survives_zone_lookup_raising(monkeypatch):
+    def boom(loc):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(api_main, "resolve_address", _fake_resolve_two_sides)
+    monkeypatch.setattr(api_main, "remember_location", lambda loc: None)
+    monkeypatch.setattr(api_main, "get_residential_zone_evidence", boom)
+
+    r = client.post(
+        "/api/locations/resolve",
+        json={"number": 2400, "street": "N Clark St", "zip_code": "60614"},
+    )
+    assert r.status_code == 200
+    assert r.json()["side_options"][0]["required_permit_zone"] is None
 
 
 _DECISION = {

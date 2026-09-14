@@ -37,6 +37,28 @@ export function loadStoredMonitor(): MonitorState | null {
   return null;
 }
 
+const PERMIT_ZONE_KEY = "ciph_permit_zone";
+
+/** Remember the entered residential zone number for next time -- no account,
+ * just this browser (same model as everything else here). Never clears it on
+ * an empty value: a temporarily-cleared field shouldn't make the app "forget"
+ * a permit the user told us about earlier. */
+export function saveRememberedPermitZone(zone: string): void {
+  try {
+    if (zone.trim()) localStorage.setItem(PERMIT_ZONE_KEY, zone.trim());
+  } catch {
+    /* private mode / storage blocked — best effort */
+  }
+}
+
+export function loadRememberedPermitZone(): string {
+  try {
+    return localStorage.getItem(PERMIT_ZONE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 /** The requested management action from the URL (`?action=extend`), if any. */
 export function readManageAction(): string | null {
   try {

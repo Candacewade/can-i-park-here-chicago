@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { ResolveResponse, WhenInput } from "../types";
 import { Icon } from "./Icon";
 import { Step } from "./Step";
@@ -34,6 +35,18 @@ export function BlockConfirm({
   const block = resolved.from_cross_street
     ? `${resolved.street_name}, between ${resolved.from_cross_street} and ${resolved.to_cross_street}`
     : resolved.street_name;
+
+  const currentSide = resolved.side_options.find((o) => o.side === side);
+  const suggestedZone = currentSide?.required_permit_zone ?? null;
+
+  // Prefill only when the field is genuinely empty (first visit, no
+  // remembered/typed value) -- never overwrite what the user already has.
+  useEffect(() => {
+    if (!when.permit_zone && suggestedZone) {
+      set({ permit_zone: suggestedZone });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestedZone]);
 
   return (
     <form
@@ -136,6 +149,32 @@ export function BlockConfirm({
             onChange={(e) => set({ permit_zone: e.target.value })}
           />
         </label>
+        {currentSide?.permit_zone_is_buffer ? (
+          <p className="note">
+            This is a buffer zone — no permit is required (no signs are posted here).
+          </p>
+        ) : suggestedZone ? (
+          <p className="note">
+            This block requires <strong>Zone {suggestedZone}</strong>
+            {when.permit_zone.trim() && when.permit_zone.trim() !== suggestedZone ? (
+              <>
+                {" "}
+                — you've entered Zone {when.permit_zone.trim()}.{" "}
+                <button
+                  type="button"
+                  className="link"
+                  onClick={() => set({ permit_zone: suggestedZone })}
+                >
+                  Use Zone {suggestedZone}
+                </button>
+              </>
+            ) : (
+              "."
+            )}
+          </p>
+        ) : (
+          currentSide && <p className="note">No residential permit is required on this block.</p>
+        )}
       </Step>
 
       <div className="section">
