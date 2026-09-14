@@ -282,7 +282,7 @@ export default function App() {
 
         <EmailWatchLookup />
 
-        <div className="grid">
+        <div className={busy ? "grid busy-first" : "grid"}>
           <div>
             {!resolved ? (
               <AddressForm

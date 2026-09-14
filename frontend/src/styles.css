@@ -221,6 +221,12 @@ h3 {
   .grid {
     grid-template-columns: 1fr;
   }
+  /* While busy (resolving/locating/checking), the status card is the only
+     thing in the second column -- put it first so mobile users see the
+     spinner right away instead of scrolling past the address/when form. */
+  .grid.busy-first > *:last-child {
+    order: -1;
+  }
 }
 
 /* ---------- form steps ---------- */
