@@ -24,6 +24,7 @@ from app.models.requests import ParkingRequest
 from app.monitor import notify
 from app.monitor.compose import compose_email
 from app.monitor.models import Watch, WatchStatus
+from app.monitor.override import decision_from_override, override_active
 from app.monitor.schedule import MessageType, due_messages, notified_key, primary
 from app.monitor.store import WatchStore, get_store
 from app.rules.engine import evaluate_parking
@@ -123,12 +124,19 @@ async def run_monitor(
 
         evidence = gather_evidence(request)
         decision = evaluate_parking(request, evidence)
+        overridden = override_active(watch, now)
+        if overridden:
+            # The user's own report fully replaces the verified decision for
+            # this watch -- skip agent investigation too, since it would just
+            # re-derive (and could silently reinstate) the real city-data
+            # verdict this override is deliberately superseding.
+            decision = decision_from_override(watch.override, request.start_time, request.end_time)
         due = due_messages(watch, decision, now)
         if urgent_only:
             due = [m for m in due if m is MessageType.URGENT]
 
         prose: str | None = None
-        if due and agent_available:
+        if due and agent_available and not overridden:
             decision, prose = await _investigate(request, decision)
             due = due_messages(watch, decision, now)
             if urgent_only:
@@ -148,7 +156,8 @@ async def run_monitor(
         msg = primary(due)
         if msg is not None:
             outcome.messages = [m.name for m in due]
-            email = compose_email(watch, decision, msg, prose)
+            override = watch.override if overridden else None
+            email = compose_email(watch, decision, msg, prose, override)
             dest = notify.get_email(watch.watch_id)
             if dest:
                 outcome.delivery = send_email(

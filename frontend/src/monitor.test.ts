@@ -35,6 +35,7 @@ function view(over: Partial<WatchView>): WatchView {
     location_summary: "N Clark St … west side (Lincoln Park)",
     through_display: "Saturday, September 5, 2026 at 9:00 AM",
     end_time_local: "2026-09-05T09:00",
+    override: null,
     ...over,
   };
 }

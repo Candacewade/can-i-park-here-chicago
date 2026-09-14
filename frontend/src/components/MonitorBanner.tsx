@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { extendWatch, stopWatch } from "../api";
+import { useEffect, useState } from "react";
+import { extendWatch, getWatch, stopWatch } from "../api";
 import { applyExtend, isLaterLocal } from "../monitor";
-import type { ExtendWatchResponse, MonitorState } from "../types";
+import type { ExtendWatchResponse, MonitorState, WatchOverrideView } from "../types";
 import { Icon } from "./Icon";
+import { OverrideReport } from "./OverrideReport";
 
 interface Props {
   monitor: MonitorState;
@@ -26,10 +27,27 @@ export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen
   const [working, setWorking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<ExtendWatchResponse | null>(null);
+  const [override, setOverride] = useState<WatchOverrideView | null>(null);
 
   const [d0, t0] = (monitor.endLocal ?? "T").split("T");
   const [date, setDate] = useState(d0);
   const [time, setTime] = useState(t0);
+
+  // Override state isn't kept in localStorage (it can change/expire on its
+  // own, or from another device) -- always fetch it fresh.
+  useEffect(() => {
+    let cancelled = false;
+    getWatch(monitor.watchId, monitor.token)
+      .then((w) => {
+        if (!cancelled) setOverride(w.override);
+      })
+      .catch(() => {
+        /* the existing hydration effect in App.tsx handles a truly dead watch */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [monitor.watchId, monitor.token]);
 
   const stop = async () => {
     setErr(null);
@@ -171,6 +189,14 @@ export function MonitorBanner({ monitor, onChange, onStartChanging, extendOnOpen
           </button>
         </div>
       )}
+
+      <OverrideReport
+        watchId={monitor.watchId}
+        manageToken={monitor.token}
+        override={override}
+        defaultExpiresLocal={monitor.endLocal}
+        onChange={setOverride}
+      />
     </div>
   );
 }

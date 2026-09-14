@@ -188,6 +188,39 @@ class ExtendWatchResponse(BaseModel):
     summary: str
 
 
+class WatchOverrideRequest(BaseModel):
+    """Set (or replace) this watch's self-reported override. NOT verified --
+    see docs/monitoring.md. `move_by` required when status is LEGAL_UNTIL;
+    `expires_at` is required and must be in the future -- overrides always
+    auto-expire rather than lingering indefinitely."""
+
+    token: str = Field(min_length=1)
+    status: ParkingStatus
+    move_by: datetime | None = None
+    note: str = Field(min_length=1, max_length=500)
+    expires_at: datetime
+
+
+class WatchOverrideView(BaseModel):
+    status: ParkingStatus
+    move_by: datetime | None
+    move_by_display: str | None
+    note: str
+    reported_at: datetime
+    expires_at: datetime
+    expires_at_local: str   # "YYYY-MM-DDTHH:MM" America/Chicago wall time
+
+
+class SetWatchOverrideResponse(BaseModel):
+    watch_id: str
+    override: WatchOverrideView
+    # the re-derived effective status/verdict for this watch, straight from
+    # the override -- lets the UI reflect it without a second fetch
+    status: ParkingStatus
+    move_by_display: str | None
+    summary: str
+
+
 class WatchView(BaseModel):
     """No email is ever echoed back."""
 
@@ -206,6 +239,8 @@ class WatchView(BaseModel):
     location_summary: str | None = None
     through_display: str | None = None
     end_time_local: str | None = None   # "YYYY-MM-DDTHH:MM" -- prefill the extend form
+    # Present only while an override is active (not yet expired).
+    override: WatchOverrideView | None = None
 
 
 class WatchListItem(WatchView):

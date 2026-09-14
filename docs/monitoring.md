@@ -179,6 +179,43 @@ degrades to templates.
   "street cleaning is also due Thursday", the snow-risk narrative.
 - No agent runtime ⇒ a plain deterministic template; the alert still goes out.
 
+### Self-reported override — the one deliberate exception to this line
+
+`POST /api/watches/{id}/override` lets the user of one specific watch fully
+replace its computed status with what they say they see in the real world
+(e.g. a posted sign the city dataset doesn't reflect yet). **This is a real
+exception to the line above, made knowingly, not a bug.** The rest of this
+app's architecture (Master Build Plan §15, §0) exists specifically so nothing
+but verified City data + the deterministic engine can decide legality — this
+feature lets a human override that, for their own watch only, at their
+explicit request.
+
+- **Full override, either direction.** A report of NOT_LEGAL/LEGAL_UNTIL
+  when city data says LEGAL is the expected case (a sign the data missed) and
+  is safe by construction. A report of LEGAL when city data says NOT_LEGAL is
+  *also* honored — if the user is wrong, the app will now tell them they're
+  clear when they aren't. This was a considered choice after weighing
+  narrower alternatives (e.g. "only allow reports that add restrictions,
+  never remove them" — never let self-report produce false reassurance); the
+  user chose full override anyway. `app/monitor/override.py` and
+  `app/monitor/models.py:WatchOverride` carry that reasoning inline.
+- **Scoped tight.** One watch, one person (whoever holds that watch's
+  `manage_token`). Never written to city data, the rule engine, evaluations
+  for other watches, or the `/api/parking/analyze` one-off check.
+- **Always attributed.** Every email/UI surface showing an override-derived
+  status says so explicitly ("Your own report — not verified city data") —
+  never rendered as if it were a normal, verified check
+  (`compose.py:_override_notice`).
+- **Auto-expires.** `expires_at` is required on every report; there is no
+  "forever" override. Past that time it's simply ignored
+  (`override_active()`), no cleanup step needed.
+- **Skips agent investigation.** `run.py` never calls the agent for a watch
+  with an active override — the agent's investigation independently
+  re-derives the real city-data verdict, which would silently fight with (and
+  could overwrite) the override it's supposed to be superseding.
+- Alerts still fire off an overridden decision exactly like a normal one — a
+  self-reported NOT_LEGAL still sends the urgent email.
+
 ## Email
 
 `app/services/email.py` — `smtplib` + STARTTLS to `smtp.gmail.com:587`, auth with
@@ -224,6 +261,10 @@ POST   /api/watches/{id}/extend        { token, end_time }  -- SAME watch, later
                                        -> deterministic re-eval of the extended interval
                                        -> { watch_id, manage_token, end_time, through_display,
                                             status, move_by_display, urgent_alert, summary }
+POST   /api/watches/{id}/override      { token, status, move_by?, note, expires_at }
+                                       -- self-reported, NOT verified -- see "The safety line"
+                                       -> { watch_id, override, status, move_by_display, summary }
+DELETE /api/watches/{id}/override?token=...   clear it -> back to verified city data
 POST   /api/monitor/run                run the pass now (X-Monitor-Token if MONITOR_TOKEN set)
 
 GET    /api/watches/by-email?email=... -> { watches: [...] }, each with its own manage_token
@@ -365,6 +406,16 @@ the stored active watch (refresh / new tab / return visit).
   card per active watch with its own inline Extend / Stop monitoring, and a
   **Change parking spot** link that hands off to the existing single-watch
   `/?manage=<id>&token=…` flow rather than re-implementing address search here.
+- **`OverrideReport.tsx`** — shared by `MonitorBanner` and
+  `WatchesByEmailPanel`'s per-watch cards: no active override → a plain
+  "Report what you see" link opens a small form (status, optional move-by,
+  a required note, a required "applies until"); an active override → a
+  visually distinct warn-toned box stating *"You reported this — not
+  verified city data"* plus the note and expiry, and a **Clear my report**
+  button. `MonitorBanner` fetches the override fresh via `GET
+  /api/watches/{id}` on mount (it isn't kept in `localStorage` — it can
+  change or expire on its own); `WatchesByEmailPanel`'s rows already have it
+  from the list response.
 
 ## Production flows
 
@@ -462,4 +513,28 @@ compose_email(..., prose=None)  -> deterministic template
 urgent alerts STILL fire (the trigger is deterministic) - only the wording is a
     fixed template
 emails send via Gmail as normal
+```
+
+### 6. A self-reported override is active
+
+City data says LEGAL. The user posted `POST /api/watches/{id}/override` with
+`status=NOT_LEGAL` and a note describing a sign they saw, `expires_at` set to
+tomorrow.
+
+```
+gather_evidence -> evaluate_parking -> LEGAL  (real, unchanged, city data)
+override_active(watch, now) -> True
+decision = decision_from_override(...)  -> NOT_LEGAL, urgent_alert=True
+    (the real LEGAL decision is discarded for messaging purposes)
+due_messages -> [URGENT]  (NOT_LEGAL is always urgent)
+agent investigation SKIPPED (would re-derive the discarded LEGAL verdict)
+compose_email(..., URGENT, prose=None, override=watch.override)
+    subject "Urgent parking alert: Move your car now"
+    body: "SOURCE: Your own report — not verified city data" notice up top,
+          then the NOT_LEGAL template as normal (nearby alternative, etc.)
+send -> notified += ["urgent:<hash of the override's note>"]
+
+next day, after expires_at: override_active -> False
+    -> decision reverts to the real (LEGAL) city-data verdict, no further
+       mention of the override
 ```

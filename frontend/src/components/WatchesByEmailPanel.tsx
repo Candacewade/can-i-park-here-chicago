@@ -3,6 +3,7 @@ import { extendWatch, listWatchesByEmail, stopWatch } from "../api";
 import { isLaterLocal } from "../monitor";
 import type { WatchListItem } from "../types";
 import { Icon } from "./Icon";
+import { OverrideReport } from "./OverrideReport";
 
 interface Props {
   email: string;
@@ -154,6 +155,14 @@ function WatchRow({ watch, onRemoved }: { watch: WatchListItem; onRemoved: () =>
           </button>
         </div>
       )}
+
+      <OverrideReport
+        watchId={current.watch_id}
+        manageToken={current.manage_token}
+        override={current.override}
+        defaultExpiresLocal={current.end_time_local ?? undefined}
+        onChange={(override) => setCurrent({ ...current, override })}
+      />
     </div>
   );
 }

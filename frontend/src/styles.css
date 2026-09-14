@@ -989,6 +989,55 @@ button.back:hover {
   color: var(--navy);
 }
 
+/* ---------- self-reported override ---------- */
+
+textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 16px;
+  margin-top: 7px;
+  padding: 12px 13px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink-2);
+  resize: vertical;
+}
+textarea:focus {
+  border-color: var(--blue);
+  outline: 2px solid var(--blue);
+  outline-offset: 0;
+}
+.override-form {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.override-active {
+  margin-top: 14px;
+  padding: 14px;
+  background: #fff5e6;
+  border: 1px solid var(--red);
+  border-radius: 12px;
+}
+.override-label {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--red);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.override-active .note {
+  margin: 0 0 4px;
+}
+.override-active .link {
+  color: var(--navy);
+  margin-top: 4px;
+}
+
 /* ---------- agent inspector ---------- */
 
 .inspector {

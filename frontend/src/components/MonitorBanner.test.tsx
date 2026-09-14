@@ -5,9 +5,15 @@ import { MonitorBanner } from "./MonitorBanner";
 
 const extendWatch = vi.fn();
 const stopWatch = vi.fn();
+const getWatch = vi.fn();
+const setWatchOverride = vi.fn();
+const clearWatchOverride = vi.fn();
 vi.mock("../api", () => ({
   extendWatch: (...a: unknown[]) => extendWatch(...a),
   stopWatch: (...a: unknown[]) => stopWatch(...a),
+  getWatch: (...a: unknown[]) => getWatch(...a),
+  setWatchOverride: (...a: unknown[]) => setWatchOverride(...a),
+  clearWatchOverride: (...a: unknown[]) => clearWatchOverride(...a),
 }));
 
 const monitor: MonitorState = {
@@ -36,6 +42,10 @@ const okResponse: ExtendWatchResponse = {
 beforeEach(() => {
   extendWatch.mockReset();
   stopWatch.mockReset();
+  getWatch.mockReset();
+  setWatchOverride.mockReset();
+  clearWatchOverride.mockReset();
+  getWatch.mockResolvedValue({ override: null });
 });
 
 function setup(over: Partial<Parameters<typeof MonitorBanner>[0]> = {}) {
@@ -117,5 +127,58 @@ describe("MonitorBanner", () => {
     const { onChange } = setup();
     fireEvent.click(screen.getByRole("button", { name: /Stop monitoring/ }));
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(null));
+  });
+
+  it("fetches the watch's override state on mount", async () => {
+    setup();
+    await waitFor(() => expect(getWatch).toHaveBeenCalledWith("wch_1", "tok_1"));
+  });
+
+  it("reporting what you see replaces the idle actions with the active report", async () => {
+    setWatchOverride.mockResolvedValue({
+      override: {
+        status: "NOT_LEGAL",
+        move_by: null,
+        move_by_display: null,
+        note: "Orange sign posted",
+        reported_at: "2026-09-14T10:00:00-05:00",
+        expires_at: "2026-09-15T10:00:00-05:00",
+        expires_at_local: "2026-09-15T10:00",
+      },
+    });
+    setup();
+    await waitFor(() => expect(getWatch).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText(/Report what you see/));
+    fireEvent.change(screen.getByPlaceholderText(/Orange street cleaning sign/), {
+      target: { value: "Orange sign posted" },
+    });
+    fireEvent.change(screen.getByLabelText("Applies until"), {
+      target: { value: "2026-09-15T10:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save my report" }));
+
+    expect(await screen.findByText(/You reported this/)).toBeTruthy();
+    expect(screen.getByText('"Orange sign posted"')).toBeTruthy();
+  });
+
+  it("clearing an active override goes back to normal", async () => {
+    getWatch.mockResolvedValue({
+      override: {
+        status: "NOT_LEGAL",
+        move_by: null,
+        move_by_display: null,
+        note: "Orange sign posted",
+        reported_at: "2026-09-14T10:00:00-05:00",
+        expires_at: "2026-09-15T10:00:00-05:00",
+        expires_at_local: "2026-09-15T10:00",
+      },
+    });
+    clearWatchOverride.mockResolvedValue({ override: null });
+    setup();
+
+    fireEvent.click(await screen.findByText("Clear my report"));
+    await waitFor(() => expect(clearWatchOverride).toHaveBeenCalledWith("wch_1", "tok_1"));
+    expect(await screen.findByText(/Report what you see/)).toBeTruthy();
   });
 });

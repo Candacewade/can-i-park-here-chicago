@@ -16,7 +16,7 @@ from app.models.evidence import (
     TemporaryClosureEvidence,
 )
 from app.monitor import run as run_mod
-from app.monitor.models import Watch, WatchStatus
+from app.monitor.models import Watch, WatchOverride, WatchStatus
 from app.monitor.run import run_monitor
 
 NOW = datetime(2026, 9, 8, 8, 0, tzinfo=CHICAGO_TZ)
@@ -218,6 +218,88 @@ async def test_use_agent_true_but_no_cli_falls_back(monkeypatch, sent):
     report = await run_monitor(now=NOW, store=MemStore([_watch()]), use_agent=True)
     assert report.agent_used is False
     assert report.emails_sent == 1   # deterministic template still sends
+
+
+# --- self-reported override: full override, either direction --------
+
+async def test_active_override_replaces_the_city_data_decision(monkeypatch, sent):
+    """City data says LEGAL; the user reported NOT_LEGAL (e.g. a sign they saw).
+    The override wins outright -- this is the feature working as designed."""
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    w = _watch(override=WatchOverride(
+        status=ParkingStatus.NOT_LEGAL,
+        note="Orange street cleaning sign posted, not in the app's data",
+        expires_at=NOW + timedelta(days=1),
+    ))
+    report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
+
+    assert report.outcomes[0].status == "NOT_LEGAL"
+    assert report.emails_sent == 1
+    assert "Urgent" in sent[0][1]  # NOT_LEGAL is always urgent, override or not
+    assert "you reported" in sent[0][2].lower()
+    assert w.last_decision == "NOT_LEGAL"
+
+
+async def test_override_can_also_relax_a_real_restriction(monkeypatch, sent):
+    """City data says NOT_LEGAL; the user reported LEGAL. By explicit design
+    choice this is a full, bidirectional override -- see docs/monitoring.md."""
+    _stub_decision(monkeypatch, ParkingStatus.NOT_LEGAL, urgent=True, reason="permit required")
+    w = _watch(override=WatchOverride(
+        status=ParkingStatus.LEGAL,
+        note="Sign says this restriction ended last month",
+        expires_at=NOW + timedelta(days=1),
+    ))
+    report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
+    assert report.outcomes[0].status == "LEGAL"
+
+
+async def test_expired_override_no_longer_applies(monkeypatch, sent):
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    w = _watch(override=WatchOverride(
+        status=ParkingStatus.NOT_LEGAL,
+        note="stale report",
+        expires_at=NOW - timedelta(hours=1),  # already expired
+    ))
+    report = await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
+    assert report.outcomes[0].status == "LEGAL"  # back to city data
+
+
+async def test_override_skips_agent_investigation(monkeypatch, sent):
+    """The agent must not run while an override is active -- it would re-derive
+    (and could silently reinstate) the real city-data verdict."""
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    called = False
+
+    async def _fake_investigate(request, decision):
+        nonlocal called
+        called = True
+        return decision, "agent prose"
+
+    monkeypatch.setattr(run_mod, "_investigate", _fake_investigate)
+    w = _watch(override=WatchOverride(
+        status=ParkingStatus.NOT_LEGAL, note="sign", expires_at=NOW + timedelta(days=1),
+    ))
+    await run_monitor(now=NOW, store=MemStore([w]), use_agent=True)
+    assert called is False
+
+
+async def test_override_email_includes_source_notice(monkeypatch, sent):
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    w = _watch(override=WatchOverride(
+        status=ParkingStatus.NOT_LEGAL,
+        note="Orange sign, Thu 9am-2pm",
+        expires_at=NOW + timedelta(days=1),
+    ))
+    await run_monitor(now=NOW, store=MemStore([w]), use_agent=False)
+    assert "not verified city data" in sent[0][2].lower()
+    assert "Orange sign, Thu 9am-2pm" in sent[0][2]
+
+
+async def test_no_override_behaves_exactly_as_before(monkeypatch, sent):
+    _stub_decision(monkeypatch, ParkingStatus.LEGAL)
+    report = await run_monitor(now=NOW, store=MemStore([_watch()]), use_agent=False)
+    assert report.outcomes[0].status == "LEGAL"
+    assert "you reported" not in sent[0][2].lower()
 
 
 # --- resolved / unsubscribed watches never notify -------------------

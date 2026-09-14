@@ -105,6 +105,27 @@ export interface MonitorState {
   endLocal?: string;
 }
 
+/** A self-reported correction to a watch's status (e.g. a posted sign the
+ * data doesn't reflect). NOT verified -- see docs/monitoring.md. Present on
+ * WatchView/WatchListItem only while still active (not yet expired). */
+export interface WatchOverrideView {
+  status: ParkingStatus;
+  move_by: string | null;
+  move_by_display: string | null;
+  note: string;
+  reported_at: string;
+  expires_at: string;
+  expires_at_local: string;
+}
+
+export interface SetWatchOverrideResponse {
+  watch_id: string;
+  override: WatchOverrideView;
+  status: ParkingStatus;
+  move_by_display: string | null;
+  summary: string;
+}
+
 export interface WatchView {
   watch_id: string;
   location_id: string;
@@ -119,6 +140,7 @@ export interface WatchView {
   location_summary: string | null;
   through_display: string | null;
   end_time_local: string | null;
+  override: WatchOverrideView | null;
 }
 
 /** One row in the "find my watches" list -- unlike WatchView, carries its own

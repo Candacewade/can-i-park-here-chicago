@@ -4,8 +4,10 @@ import type {
   CreateWatchResponse,
   ExampleAddress,
   ExtendWatchResponse,
+  ParkingStatus,
   ReplaceWatchResponse,
   ResolveResponse,
+  SetWatchOverrideResponse,
   WatchListItem,
   WatchView,
   WhenInput,
@@ -113,6 +115,34 @@ export function listWatchesByEmail(email: string): Promise<WatchListItem[]> {
   return fetch(`${BASE}/api/watches/by-email?email=${encodeURIComponent(email.trim())}`)
     .then((r) => json<{ watches: WatchListItem[] }>(r))
     .then((r) => r.watches);
+}
+
+/** Set (or replace) this watch's self-reported override -- e.g. a posted sign
+ * that doesn't match the city dataset. NOT verified; see docs/monitoring.md.
+ * `moveByLocal`/`expiresAtLocal` are "YYYY-MM-DDTHH:MM". */
+export function setWatchOverride(
+  watchId: string,
+  token: string,
+  input: { status: ParkingStatus; note: string; expiresAtLocal: string; moveByLocal?: string },
+): Promise<SetWatchOverrideResponse> {
+  return fetch(`${BASE}/api/watches/${encodeURIComponent(watchId)}/override`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      token,
+      status: input.status,
+      note: input.note.trim(),
+      expires_at: `${input.expiresAtLocal}:00`,
+      move_by: input.moveByLocal ? `${input.moveByLocal}:00` : null,
+    }),
+  }).then((r) => json<SetWatchOverrideResponse>(r));
+}
+
+export function clearWatchOverride(watchId: string, token: string): Promise<WatchView> {
+  return fetch(
+    `${BASE}/api/watches/${encodeURIComponent(watchId)}/override?token=${encodeURIComponent(token)}`,
+    { method: "DELETE" },
+  ).then((r) => json<WatchView>(r));
 }
 
 export function replaceWatch(

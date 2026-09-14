@@ -30,7 +30,7 @@ from app.monitor.email_render import (
     render_text,
 )
 from app.monitor.links import change_spot_url, extend_time_url, unsubscribe_url
-from app.monitor.models import Watch
+from app.monitor.models import Watch, WatchOverride
 from app.monitor.schedule import MessageType
 from app.rules.engine import _fmt as _short_marker  # deterministic short Chicago label
 from app.rules.nearby import find_legal_parking_nearby
@@ -274,14 +274,35 @@ def _preheader(decision: ParkingDecision) -> str:
 
 # --- documents -------------------------------------------------------
 
+def _override_notice(override: WatchOverride) -> list:
+    """Prepended whenever the status shown comes from what the user reported,
+    not from verified city data -- never let this look like a normal check."""
+    return [
+        Panel([("Source", "Your own report — not verified city data")], tone="warn"),
+        P(f'You reported: "{override.note}"'),
+        P(
+            f"This overrides the app's own check until {_short_when(override.expires_at)}.",
+            muted=True,
+            small=True,
+        ),
+        Rule(),
+    ]
+
+
 def _urgent_doc(
-    watch: Watch, decision: ParkingDecision, loc: ChicagoParkingLocation | None, prose: str | None
+    watch: Watch,
+    decision: ParkingDecision,
+    loc: ChicagoParkingLocation | None,
+    prose: str | None,
+    override: WatchOverride | None = None,
 ) -> EmailDoc:
     nodes: list = [H1("🚨 Time-Sensitive Parking Alert"), P(_block_line(loc, watch))]
     pl = _place_line(loc)
     if pl:
         nodes.append(P(pl, muted=True))
     nodes.append(Rule())
+    if override is not None:
+        nodes += _override_notice(override)
 
     nodes.append(Panel([("Status", "NOT LEGAL")], tone="bad"))
     nodes.append(P("You cannot legally park here for this parking window."))
@@ -418,12 +439,15 @@ def _daily_doc(
     decision: ParkingDecision,
     loc: ChicagoParkingLocation | None,
     prose: str | None,
+    override: WatchOverride | None = None,
 ) -> EmailDoc:
     nodes: list = [H1("🚗 Daily Parking Check"), P(_block_line(loc, watch))]
     pl = _place_line(loc)
     if pl:
         nodes.append(P(pl, muted=True))
     nodes.append(Rule())
+    if override is not None:
+        nodes += _override_notice(override)
 
     nodes.append(H2("🗓️ Parking window"))
     nodes.append(P(f"{decision.start_time_display} → {decision.end_time_display}"))
@@ -438,6 +462,7 @@ def _final_day_doc(
     decision: ParkingDecision,
     loc: ChicagoParkingLocation | None,
     prose: str | None,
+    override: WatchOverride | None = None,
 ) -> EmailDoc:
     """The last message this watch sends before it expires -- the calendar day
     ``watch.end_time`` falls on. Same status body as the ordinary daily check,
@@ -448,6 +473,8 @@ def _final_day_doc(
     if pl:
         nodes.append(P(pl, muted=True))
     nodes.append(Rule())
+    if override is not None:
+        nodes += _override_notice(override)
 
     nodes.append(
         P(
@@ -475,15 +502,16 @@ def compose_email(
     decision: ParkingDecision,
     msg: MessageType,
     agent_prose: str | None = None,
+    override: WatchOverride | None = None,
 ) -> Email:
     loc = _location(watch)
     prose = agent_prose.strip() if agent_prose and agent_prose.strip() else None
     if msg is MessageType.URGENT:
-        doc = _urgent_doc(watch, decision, loc, prose)
+        doc = _urgent_doc(watch, decision, loc, prose, override)
     elif msg is MessageType.FINAL_DAY:
-        doc = _final_day_doc(watch, decision, loc, prose)
+        doc = _final_day_doc(watch, decision, loc, prose, override)
     else:
-        doc = _daily_doc(watch, decision, loc, prose)
+        doc = _daily_doc(watch, decision, loc, prose, override)
     return Email(
         subject=_subject(msg, decision),
         body_text=render_text(doc),

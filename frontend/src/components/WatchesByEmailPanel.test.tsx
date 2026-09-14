@@ -6,10 +6,14 @@ import { WatchesByEmailPanel } from "./WatchesByEmailPanel";
 const listWatchesByEmail = vi.fn();
 const extendWatch = vi.fn();
 const stopWatch = vi.fn();
+const setWatchOverride = vi.fn();
+const clearWatchOverride = vi.fn();
 vi.mock("../api", () => ({
   listWatchesByEmail: (...a: unknown[]) => listWatchesByEmail(...a),
   extendWatch: (...a: unknown[]) => extendWatch(...a),
   stopWatch: (...a: unknown[]) => stopWatch(...a),
+  setWatchOverride: (...a: unknown[]) => setWatchOverride(...a),
+  clearWatchOverride: (...a: unknown[]) => clearWatchOverride(...a),
 }));
 
 const watchA: WatchListItem = {
@@ -27,6 +31,7 @@ const watchA: WatchListItem = {
   location_summary: "W Wrightwood Ave … north side (Logan Square)",
   through_display: "Wednesday, September 16, 2026 at 8:49 PM",
   end_time_local: "2026-09-16T20:49",
+  override: null,
 };
 
 const watchB: WatchListItem = { ...watchA, watch_id: "wch_b", manage_token: "tok_b" };

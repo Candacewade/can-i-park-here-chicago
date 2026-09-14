@@ -443,6 +443,103 @@ def test_extend_drops_reminder_keys_keeps_morning_and_urgent(_mem, _stub_eval):
     assert set(_mem.w[wid].notified) == {"morning:2026-09-02", "urgent:abc12345"}
 
 
+# --- self-reported override -----------------------------------------
+
+def _override(wid, token, **kw):
+    body = {
+        "token": token,
+        "status": "NOT_LEGAL",
+        "note": "Orange street cleaning sign posted, not in the app's data",
+        "expires_at": (datetime.now(tz=CHICAGO_TZ) + timedelta(days=1)).isoformat(),
+    }
+    body.update(kw)
+    return client.post(f"/api/watches/{wid}/override", json=body)
+
+
+def test_set_override_returns_the_overridden_status(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+
+    r = _override(wid, tok)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["status"] == "NOT_LEGAL"
+    assert out["override"]["note"].startswith("Orange street cleaning sign")
+    assert _mem.w[wid].override is not None
+    assert _mem.w[wid].override.status == ParkingStatus.NOT_LEGAL
+
+
+def test_set_override_legal_until_requires_move_by(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    move_by = (datetime.now(tz=CHICAGO_TZ) + timedelta(hours=5)).isoformat()
+
+    ok = _override(wid, tok, status="LEGAL_UNTIL", move_by=move_by)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["override"]["move_by_display"]
+
+    missing = _override(wid, tok, status="LEGAL_UNTIL", move_by=None)
+    assert missing.status_code == 422
+
+
+def test_set_override_rejects_unknown_status(_mem, _stub_eval):
+    body = _create()
+    r = _override(body["watch_id"], body["manage_token"], status="UNKNOWN")
+    assert r.status_code == 422
+
+
+def test_set_override_rejects_past_expiry(_mem, _stub_eval):
+    body = _create()
+    past = (datetime.now(tz=CHICAGO_TZ) - timedelta(hours=1)).isoformat()
+    r = _override(body["watch_id"], body["manage_token"], expires_at=past)
+    assert r.status_code == 422
+
+
+def test_set_override_requires_correct_token(_mem, _stub_eval):
+    body = _create()
+    r = _override(body["watch_id"], "wrong-token")
+    assert r.status_code == 404
+    assert _mem.w[body["watch_id"]].override is None
+
+
+def test_set_override_rejects_resolved_watch(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    client.delete(f"/api/watches/{wid}?token={tok}")
+    assert _override(wid, tok).status_code == 409
+
+
+def test_get_watch_reflects_active_override(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    _override(wid, tok)
+
+    view = client.get(f"/api/watches/{wid}?token={tok}").json()
+    assert view["override"]["status"] == "NOT_LEGAL"
+
+
+def test_clear_override_reverts_to_city_data(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    _override(wid, tok)
+
+    r = client.delete(f"/api/watches/{wid}/override?token={tok}")
+    assert r.status_code == 200
+    assert r.json()["override"] is None
+    assert _mem.w[wid].override is None
+
+    # idempotent -- clearing again doesn't error
+    assert client.delete(f"/api/watches/{wid}/override?token={tok}").status_code == 200
+
+
+def test_clear_override_requires_correct_token(_mem, _stub_eval):
+    body = _create()
+    wid, tok = body["watch_id"], body["manage_token"]
+    _override(wid, tok)
+    assert client.delete(f"/api/watches/{wid}/override?token=wrong").status_code == 404
+    assert _mem.w[wid].override is not None
+
+
 def test_monitor_run_endpoint(monkeypatch, _mem):
     async def fake_run(use_agent):
         from app.monitor.run import MonitorReport

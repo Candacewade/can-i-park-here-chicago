@@ -10,7 +10,7 @@ from app.config import CHICAGO_TZ
 from app.models.decision import DecisionReason, ParkingDecision, ParkingStatus
 from app.monitor import compose as compose_mod
 from app.monitor.compose import compose_email
-from app.monitor.models import Watch
+from app.monitor.models import Watch, WatchOverride
 from app.monitor.schedule import MessageType
 
 NOW = datetime(2026, 9, 8, 8, 0, tzinfo=CHICAGO_TZ)
@@ -163,6 +163,58 @@ def test_daily_fully_legal():
     assert email.subject == "✅ Daily parking check: You're still clear"
     assert "LEGAL" in email.body_html
     assert "Move your car by" not in email.body_html
+
+
+# --- self-reported override notice -----------------------------------
+
+def _override():
+    return WatchOverride(
+        status=ParkingStatus.NOT_LEGAL,
+        note="Orange street cleaning sign posted, Thu 9am-2pm",
+        expires_at=NOW + timedelta(days=1),
+    )
+
+
+def test_no_override_shows_no_notice():
+    d = ParkingDecision(
+        status=ParkingStatus.LEGAL,
+        reasons=[DecisionReason(category="residential", verdict="allows", detail="ok.")],
+        start_time_display="A", end_time_display="B",
+    )
+    email = compose_email(_watch(), d, MessageType.MORNING)
+    assert "not verified city data" not in email.body_html.lower()
+
+
+def test_active_override_shows_a_clear_source_notice_on_daily_email():
+    d = ParkingDecision(
+        status=ParkingStatus.NOT_LEGAL,
+        reasons=[DecisionReason(category="user_reported", verdict="blocks",
+                                detail='You reported: "..."')],
+        start_time_display="A", end_time_display="B",
+    )
+    email = compose_email(_watch(), d, MessageType.MORNING, override=_override())
+    h, t = email.body_html, email.body_text
+    assert "not verified city data" in h.lower()
+    assert "Orange street cleaning sign posted, Thu 9am-2pm" in h
+    assert "not verified city data" in t.lower()
+    assert "Orange street cleaning sign posted, Thu 9am-2pm" in t
+
+
+def test_active_override_shows_notice_on_urgent_email():
+    email = compose_email(
+        _watch(), _not_legal_decision(), MessageType.URGENT, override=_override()
+    )
+    assert "not verified city data" in email.body_html.lower()
+
+
+def test_active_override_shows_notice_on_final_day_email():
+    d = ParkingDecision(
+        status=ParkingStatus.LEGAL,
+        reasons=[DecisionReason(category="residential", verdict="allows", detail="ok.")],
+        start_time_display="A", end_time_display="B",
+    )
+    email = compose_email(_watch(), d, MessageType.FINAL_DAY, override=_override())
+    assert "not verified city data" in email.body_html.lower()
 
 
 # --- unsubscribe / manage links ------------------------------------

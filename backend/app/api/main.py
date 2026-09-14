@@ -11,6 +11,8 @@
     POST /api/watches/{id}/unsubscribe    confirm -> resolve the watch, drop its email
     POST /api/watches/{id}/replace        move the monitored spot (resolve old + create new)
     POST /api/watches/{id}/extend         push the end_time later on the SAME watch
+    POST /api/watches/{id}/override        self-reported status override (NOT verified -- see docs)
+    DELETE /api/watches/{id}/override      clear this watch's override
     POST /api/monitor/run                 trigger the daily pass (protected)
 
 One process contains FastAPI + the Claude agent + the MCP server + rule engine
@@ -43,10 +45,13 @@ from app.api.schemas import (
     ReplaceWatchResponse,
     ResolveRequest,
     ResolveResponse,
+    SetWatchOverrideResponse,
     SideCandidate,
     ToolCallView,
     WatchesByEmailResponse,
     WatchListItem,
+    WatchOverrideRequest,
+    WatchOverrideView,
     WatchView,
 )
 from app.config import (
@@ -61,7 +66,8 @@ from app.locations.resolve import resolve_address
 from app.models.decision import ParkingStatus
 from app.models.requests import ParkingRequest
 from app.monitor import notify
-from app.monitor.models import Watch, WatchStatus
+from app.monitor.models import Watch, WatchOverride, WatchStatus
+from app.monitor.override import decision_from_override, override_active
 from app.monitor.run import run_monitor
 from app.monitor.store import get_store
 from app.rules.engine import _display as _display_ct  # America/Chicago long-form label
@@ -201,11 +207,24 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
 
 # --- watches / monitoring (Slice 4) ---------------------------------
 
+def _override_view(override: WatchOverride) -> WatchOverrideView:
+    return WatchOverrideView(
+        status=override.status,
+        move_by=override.move_by,
+        move_by_display=_display_ct(override.move_by) if override.move_by else None,
+        note=override.note,
+        reported_at=override.reported_at,
+        expires_at=override.expires_at,
+        expires_at_local=_local_wall(override.expires_at),
+    )
+
+
 def _watch_view(w: Watch) -> WatchView:
     try:
         summary = get_location(w.location_id).human_summary()
     except Exception:
         summary = None
+    active_override = w.override if override_active(w, datetime.now(tz=CHICAGO_TZ)) else None
     return WatchView(
         watch_id=w.watch_id,
         location_id=w.location_id,
@@ -220,6 +239,7 @@ def _watch_view(w: Watch) -> WatchView:
         location_summary=summary,
         through_display=_display_ct(w.end_time),
         end_time_local=_local_wall(w.end_time),
+        override=_override_view(active_override) if active_override else None,
     )
 
 
@@ -533,6 +553,68 @@ def extend_watch(watch_id: str, payload: ExtendWatchRequest) -> ExtendWatchRespo
         urgent_alert=decision.urgent_alert,
         summary=summary,
     )
+
+
+_OVERRIDE_SUMMARY = {
+    ParkingStatus.LEGAL: "Based on what you reported, you're clear to park here.",
+    ParkingStatus.LEGAL_UNTIL: "Based on what you reported, you'll need to move by {move_by}.",
+    ParkingStatus.NOT_LEGAL: "Based on what you reported, this spot is not legal right now.",
+}
+
+
+@app.post("/api/watches/{watch_id}/override", response_model=SetWatchOverrideResponse)
+def set_watch_override(watch_id: str, payload: WatchOverrideRequest) -> SetWatchOverrideResponse:
+    """Set (or replace) this watch's self-reported override -- e.g. a posted
+    sign that doesn't match the city dataset. NOT verified by anything but the
+    user's own eyes; see docs/monitoring.md for what that means and why."""
+    store = get_store()
+    watches = store.load()
+    watch = _require_watch(watch_id, payload.token, watches)
+    if watch.status is not WatchStatus.ACTIVE:
+        raise HTTPException(status_code=409, detail="this watch is no longer active")
+
+    expires_at = payload.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=CHICAGO_TZ)
+    if expires_at <= datetime.now(tz=CHICAGO_TZ):
+        raise HTTPException(status_code=422, detail="expires_at must be in the future")
+
+    try:
+        override = WatchOverride(
+            status=payload.status,
+            move_by=payload.move_by,
+            note=payload.note.strip(),
+            expires_at=expires_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    watch.override = override
+    store.save(watches)
+
+    decision = decision_from_override(override, watch.start_time, watch.end_time)
+    summary = _OVERRIDE_SUMMARY[decision.status].format(
+        move_by=decision.move_by_display or "your deadline"
+    )
+    return SetWatchOverrideResponse(
+        watch_id=watch.watch_id,
+        override=_override_view(override),
+        status=decision.status,
+        move_by_display=decision.move_by_display,
+        summary=summary,
+    )
+
+
+@app.delete("/api/watches/{watch_id}/override", response_model=WatchView)
+def clear_watch_override(watch_id: str, token: str | None = Query(default=None)) -> WatchView:
+    """Drop this watch's override -- emails/alerts go back to verified city data."""
+    store = get_store()
+    watches = store.load()
+    watch = _require_watch(watch_id, token, watches)
+    if watch.override is not None:
+        watch.override = None
+        store.save(watches)
+    return _watch_view(watch)
 
 
 @app.post("/api/monitor/run", response_model=MonitorRunResponse)
