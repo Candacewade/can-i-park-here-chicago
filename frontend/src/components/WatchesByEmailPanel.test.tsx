@@ -40,29 +40,30 @@ beforeEach(() => {
 describe("WatchesByEmailPanel", () => {
   it("shows a loading state, then the fetched watches", async () => {
     listWatchesByEmail.mockResolvedValue([watchA, watchB]);
-    render(<WatchesByEmailPanel token="tok_xyz" />);
+    render(<WatchesByEmailPanel email="driver@example.com" />);
     expect(screen.getByText(/Loading your parking watches/)).toBeTruthy();
 
-    await waitFor(() => expect(listWatchesByEmail).toHaveBeenCalledWith("tok_xyz"));
+    await waitFor(() => expect(listWatchesByEmail).toHaveBeenCalledWith("driver@example.com"));
     expect(await screen.findAllByText(/Wrightwood/)).toHaveLength(2);
   });
 
   it("shows an empty state with no active watches", async () => {
     listWatchesByEmail.mockResolvedValue([]);
-    render(<WatchesByEmailPanel token="tok_xyz" />);
+    render(<WatchesByEmailPanel email="driver@example.com" />);
     expect(await screen.findByText(/No active parking watches/)).toBeTruthy();
   });
 
-  it("an invalid/expired token shows an error, not a crash", async () => {
-    listWatchesByEmail.mockRejectedValue(new Error("401 invalid or expired link"));
-    render(<WatchesByEmailPanel token="bad" />);
-    expect(await screen.findByText(/isn't valid or has expired/)).toBeTruthy();
+  it("an API failure shows an error, not a crash", async () => {
+    listWatchesByEmail.mockRejectedValue(new Error("500 boom"));
+    render(<WatchesByEmailPanel email="driver@example.com" />);
+    expect(await screen.findByText(/Couldn't look up watches/)).toBeTruthy();
+    expect(screen.getByText(/500 boom/)).toBeTruthy();
   });
 
   it("Stop monitoring removes just that watch from the list", async () => {
     listWatchesByEmail.mockResolvedValue([watchA, watchB]);
     stopWatch.mockResolvedValue({});
-    render(<WatchesByEmailPanel token="tok_xyz" />);
+    render(<WatchesByEmailPanel email="driver@example.com" />);
     await screen.findAllByText(/Wrightwood/);
 
     fireEvent.click(screen.getAllByRole("button", { name: /Stop monitoring/ })[0]);
@@ -88,7 +89,7 @@ describe("WatchesByEmailPanel", () => {
       summary: "still clear",
     };
     extendWatch.mockResolvedValue(extended);
-    render(<WatchesByEmailPanel token="tok_xyz" />);
+    render(<WatchesByEmailPanel email="driver@example.com" />);
     await screen.findAllByText(/Wrightwood/);
 
     fireEvent.click(screen.getAllByRole("button", { name: "Extend parking time" })[0]);
@@ -106,7 +107,7 @@ describe("WatchesByEmailPanel", () => {
 
   it("each row's Change parking spot link carries its own watch_id + manage_token", async () => {
     listWatchesByEmail.mockResolvedValue([watchA, watchB]);
-    render(<WatchesByEmailPanel token="tok_xyz" />);
+    render(<WatchesByEmailPanel email="driver@example.com" />);
     await screen.findAllByText(/Wrightwood/);
 
     const links = screen.getAllByRole("link", { name: "Change parking spot" });

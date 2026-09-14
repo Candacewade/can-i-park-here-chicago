@@ -5,7 +5,7 @@ import type { WatchListItem } from "../types";
 import { Icon } from "./Icon";
 
 interface Props {
-  token: string;
+  email: string;
 }
 
 const STATUS_ICON: Record<string, string> = {
@@ -158,15 +158,16 @@ function WatchRow({ watch, onRemoved }: { watch: WatchListItem; onRemoved: () =>
   );
 }
 
-/** The page an emailed "find my watches" link opens to: every active watch
- * for the email that link's token proves, each independently editable. */
-export function WatchesByEmailPanel({ token }: Props) {
+/** Every active watch registered to this email, each independently editable.
+ * NOT verified -- the address alone is enough (see EmailWatchLookup.tsx and
+ * docs/monitoring.md for why). */
+export function WatchesByEmailPanel({ email }: Props) {
   const [watches, setWatches] = useState<WatchListItem[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    listWatchesByEmail(token)
+    listWatchesByEmail(email)
       .then((w) => {
         if (!cancelled) setWatches(w);
       })
@@ -176,13 +177,12 @@ export function WatchesByEmailPanel({ token }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [email]);
 
   if (err) {
     return (
       <div className="callout warn" role="alert">
-        ⚠️ That link isn't valid or has expired. Go back to the home screen and request a new
-        one under "Manage my parking watches".
+        ⚠️ Couldn't look up watches for that address: {err}
       </div>
     );
   }

@@ -11,13 +11,11 @@ import { MonitorPanel } from "./components/MonitorPanel";
 import { Nav } from "./components/Nav";
 import { ResultCard } from "./components/ResultCard";
 import { SiteFooter } from "./components/SiteFooter";
-import { WatchesByEmailPanel } from "./components/WatchesByEmailPanel";
 import type { LinkStatus } from "./monitor";
 import {
   loadStoredMonitor,
   needsHydration,
   readManageAction,
-  readManageEmailToken,
   readManageLink,
   resolveStartupMonitor,
   saveMonitor,
@@ -70,9 +68,6 @@ export default function App() {
   );
   const hadLink = useRef(!!readManageLink());
   const wantExtend = useRef(readManageAction() === "extend");
-  // "Find my watches" email link (?manage-email=) -- a separate mode from the
-  // single-watch ?manage=&token= link above; takes over the whole page.
-  const manageEmailToken = useRef(readManageEmailToken()).current;
 
   const updateMonitor = (m: MonitorState | null) => {
     setMonitor(m);
@@ -192,136 +187,130 @@ export default function App() {
       <Hero />
 
       <div className="stack">
-        {manageEmailToken ? (
-          <WatchesByEmailPanel token={manageEmailToken} />
-        ) : (
-          <>
-            {linkStatus === "loading" && (
-              <div className="callout info">Opening your parking monitor…</div>
-            )}
-            {linkStatus === "resolved" && (
-              <div className="callout warn" role="status">
-                <span>
-                  🔕 That parking monitor has already been turned off — you won't get any more
-                  emails for it.
-                </span>
-                <button className="link" onClick={() => setLinkStatus("none")}>
-                  Dismiss
-                </button>
-              </div>
-            )}
-            {linkStatus === "invalid" && (
-              <div className="callout warn" role="alert">
-                <span>
-                  ⚠️ That management link isn't valid — it may be old. Use the link in your
-                  most recent parking email.
-                </span>
-                <button className="link" onClick={() => setLinkStatus("none")}>
-                  Dismiss
-                </button>
-              </div>
-            )}
+        {linkStatus === "loading" && (
+          <div className="callout info">Opening your parking monitor…</div>
+        )}
+        {linkStatus === "resolved" && (
+          <div className="callout warn" role="status">
+            <span>
+              🔕 That parking monitor has already been turned off — you won't get any more
+              emails for it.
+            </span>
+            <button className="link" onClick={() => setLinkStatus("none")}>
+              Dismiss
+            </button>
+          </div>
+        )}
+        {linkStatus === "invalid" && (
+          <div className="callout warn" role="alert">
+            <span>
+              ⚠️ That management link isn't valid — it may be old. Use the link in your
+              most recent parking email.
+            </span>
+            <button className="link" onClick={() => setLinkStatus("none")}>
+              Dismiss
+            </button>
+          </div>
+        )}
 
-            {monitor && !changing && linkStatus !== "loading" && (
-              <MonitorBanner
-                monitor={monitor}
-                onChange={updateMonitor}
-                onStartChanging={startChanging}
-                extendOnOpen={wantExtend.current}
+        {monitor && !changing && linkStatus !== "loading" && (
+          <MonitorBanner
+            monitor={monitor}
+            onChange={updateMonitor}
+            onStartChanging={startChanging}
+            extendOnOpen={wantExtend.current}
+          />
+        )}
+
+        {monitor && changing && !readyToConfirmMove && (
+          <div className="callout info">
+            <span>
+              <strong>Changing your monitored parking spot.</strong> Enter the new address
+              below and run the check — your current watch keeps running until you confirm.
+            </span>
+            <button className="link" onClick={() => setChanging(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
+
+        <EmailWatchLookup />
+
+        <div className="grid">
+          <div>
+            {!resolved ? (
+              <AddressForm
+                value={address}
+                onChange={setAddress}
+                onSubmit={doResolve}
+                examples={examples}
+                busy={resolving}
+              />
+            ) : (
+              <BlockConfirm
+                resolved={resolved}
+                side={side}
+                onSide={setSide}
+                when={when}
+                onWhen={setWhen}
+                onSubmit={doAnalyze}
+                onBack={() => {
+                  setResolved(null);
+                  setResult(null);
+                }}
+                busy={analyzing}
               />
             )}
+          </div>
 
-            {monitor && changing && !readyToConfirmMove && (
-              <div className="callout info">
-                <span>
-                  <strong>Changing your monitored parking spot.</strong> Enter the new address
-                  below and run the check — your current watch keeps running until you confirm.
-                </span>
-                <button className="link" onClick={() => setChanging(false)}>
-                  Cancel
-                </button>
+          <div className="stack">
+            {busy && (
+              <div className="card working" role="status" aria-live="polite">
+                <div className="spinner" aria-hidden="true" />
+                <p>
+                  {resolving
+                    ? "Matching the address to a Chicago street segment…"
+                    : "Checking City data — permit zones, street cleaning, closures, snow routes…"}
+                </p>
               </div>
             )}
 
-            <EmailWatchLookup />
-
-            <div className="grid">
-              <div>
-                {!resolved ? (
-                  <AddressForm
-                    value={address}
-                    onChange={setAddress}
-                    onSubmit={doResolve}
-                    examples={examples}
-                    busy={resolving}
-                  />
-                ) : (
-                  <BlockConfirm
-                    resolved={resolved}
-                    side={side}
-                    onSide={setSide}
-                    when={when}
-                    onWhen={setWhen}
-                    onSubmit={doAnalyze}
-                    onBack={() => {
-                      setResolved(null);
-                      setResult(null);
-                    }}
-                    busy={analyzing}
-                  />
-                )}
+            {err && (
+              <div className="callout error" role="alert">
+                {err}
               </div>
+            )}
 
-              <div className="stack">
-                {busy && (
-                  <div className="card working" role="status" aria-live="polite">
-                    <div className="spinner" aria-hidden="true" />
-                    <p>
-                      {resolving
-                        ? "Matching the address to a Chicago street segment…"
-                        : "Checking City data — permit zones, street cleaning, closures, snow routes…"}
-                    </p>
-                  </div>
-                )}
+            {result && !analyzing && (
+              <ResultCard result={result} blockSummary={blockSummary} />
+            )}
+            {result && !analyzing && (
+              <MonitorPanel
+                locationId={locationId}
+                blockSummary={blockSummary}
+                throughDisplay={result.end_time_display ?? null}
+                when={when}
+                monitor={monitor}
+                changing={changing}
+                onChange={updateMonitor}
+                onCancelChanging={() => setChanging(false)}
+              />
+            )}
+            {result && !analyzing && <AgentInspector result={result} />}
 
-                {err && (
-                  <div className="callout error" role="alert">
-                    {err}
-                  </div>
-                )}
-
-                {result && !analyzing && (
-                  <ResultCard result={result} blockSummary={blockSummary} />
-                )}
-                {result && !analyzing && (
-                  <MonitorPanel
-                    locationId={locationId}
-                    blockSummary={blockSummary}
-                    throughDisplay={result.end_time_display ?? null}
-                    when={when}
-                    monitor={monitor}
-                    changing={changing}
-                    onChange={updateMonitor}
-                    onCancelChanging={() => setChanging(false)}
-                  />
-                )}
-                {result && !analyzing && <AgentInspector result={result} />}
-
-                {!busy && !err && !result && (
-                  <div className="card status-placeholder">
-                    <span className="card-title">
-                      <Icon name="car" className="tic" /> Parking status
-                    </span>
-                    <p className="note">
-                      Enter the address you're parked at and run a check — the verdict, the
-                      move-by time, and what was checked will show up here.
-                    </p>
-                  </div>
-                )}
+            {!busy && !err && !result && (
+              <div className="card status-placeholder">
+                <span className="card-title">
+                  <Icon name="car" className="tic" /> Parking status
+                </span>
+                <p className="note">
+                  Enter the address you're parked at and run a check — the verdict, the
+                  move-by time, and what was checked will show up here.
+                </p>
               </div>
-            </div>
-          </>
-        )}
+            )}
+          </div>
+        </div>
       </div>
 
       <SiteFooter />

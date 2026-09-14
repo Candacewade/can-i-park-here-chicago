@@ -46,18 +46,6 @@ export function readManageAction(): string | null {
   }
 }
 
-/** The "find my watches" lookup token from an emailed link (`?manage-email=`),
- * if the current URL carries one. Left in the URL (unlike `?manage=&token=`)
- * so a refresh keeps working for the life of the token -- there's no
- * localStorage equivalent for "all watches for this email" to fall back on. */
-export function readManageEmailToken(): string | null {
-  try {
-    return new URLSearchParams(window.location.search).get("manage-email");
-  } catch {
-    return null;
-  }
-}
-
 /** The watch the current URL explicitly asks to manage, if any. */
 export function readManageLink(): { watchId: string; token: string } | null {
   try {

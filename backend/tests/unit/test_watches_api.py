@@ -45,18 +45,6 @@ def _mem(monkeypatch):
     return store
 
 
-@pytest.fixture
-def _sent_emails(monkeypatch):
-    box: list[tuple[str, str, str, str | None]] = []
-
-    def _send(to, subj, body, html=None):
-        box.append((to, subj, body, html))
-        return "sent"
-
-    monkeypatch.setattr(api_main, "send_email", _send)
-    return box
-
-
 def _payload(**kw):
     start = datetime.now(tz=CHICAGO_TZ) + timedelta(hours=1)
     base = {
@@ -129,44 +117,10 @@ def test_create_different_email_same_spot_is_not_deduped(_mem):
     assert len(_mem.w) == 2
 
 
-# --- "find my watches" by email -------------------------------------
+# --- "find my watches" by email (not verified -- user's explicit choice
+# after the emailed-verification-link version wasn't delivering reliably) ---
 
-def test_lookup_request_always_returns_generic_success(_mem, _sent_emails):
-    _create(email="driver@example.com")
-    r = client.post("/api/watches/lookup-request", json={"email": "driver@example.com"})
-    assert r.status_code == 200
-    assert r.json() == {"sent": True}
-    assert len(_sent_emails) == 1
-    assert _sent_emails[0][0] == "driver@example.com"
-
-    # identical response for an email with NO watches -- no enumeration signal
-    r2 = client.post("/api/watches/lookup-request", json={"email": "nobody@example.com"})
-    assert r2.status_code == 200
-    assert r2.json() == {"sent": True}
-
-
-def test_lookup_request_rejects_bad_email(_mem, _sent_emails):
-    r = client.post("/api/watches/lookup-request", json={"email": "not-an-email"})
-    assert r.status_code == 422
-    assert len(_sent_emails) == 0
-
-
-def _lookup_link(_sent_emails) -> str:
-    """Pull the emailed "View my parking watches" URL out of the sent message."""
-    body_text = _sent_emails[0][2]
-    for line in body_text.splitlines():
-        if line.startswith("View my parking watches:"):
-            return line.split(":", 1)[1].strip()
-    raise AssertionError(f"no link found in email body: {body_text!r}")
-
-
-def _token_from_link(link: str) -> str:
-    from urllib.parse import parse_qs, urlsplit
-
-    return parse_qs(urlsplit(link).query)["manage-email"][0]
-
-
-def test_by_email_lists_only_active_watches_for_that_address(_mem, _sent_emails):
+def test_by_email_lists_only_active_watches_for_that_address(_mem):
     mine = _create(email="driver@example.com")
     other = _create(email="someone-else@example.com")
     # a different location_id -- otherwise the same-email-same-spot dedup
@@ -174,10 +128,7 @@ def test_by_email_lists_only_active_watches_for_that_address(_mem, _sent_emails)
     stopped = _create(email="driver@example.com", location_id="george-3200w-north")
     client.delete(f"/api/watches/{stopped['watch_id']}?token={stopped['manage_token']}")
 
-    client.post("/api/watches/lookup-request", json={"email": "driver@example.com"})
-    token = _token_from_link(_lookup_link(_sent_emails))
-
-    r = client.get(f"/api/watches/by-email?token={token}")
+    r = client.get("/api/watches/by-email?email=driver@example.com")
     assert r.status_code == 200
     ids = {w["watch_id"] for w in r.json()["watches"]}
     assert ids == {mine["watch_id"]}
@@ -189,37 +140,28 @@ def test_by_email_lists_only_active_watches_for_that_address(_mem, _sent_emails)
     assert "email" not in item
 
 
-def test_by_email_empty_for_address_with_no_watches(_mem, _sent_emails):
-    client.post("/api/watches/lookup-request", json={"email": "nobody@example.com"})
-    token = _token_from_link(_lookup_link(_sent_emails))
-    r = client.get(f"/api/watches/by-email?token={token}")
+def test_by_email_matches_case_insensitively(_mem):
+    mine = _create(email="Driver@Example.com")
+    r = client.get("/api/watches/by-email?email=driver@example.com")
+    assert {w["watch_id"] for w in r.json()["watches"]} == {mine["watch_id"]}
+
+
+def test_by_email_empty_for_address_with_no_watches(_mem):
+    r = client.get("/api/watches/by-email?email=nobody@example.com")
     assert r.status_code == 200
     assert r.json()["watches"] == []
 
 
-def test_by_email_rejects_invalid_or_missing_token(_mem):
-    assert client.get("/api/watches/by-email?token=garbage").status_code == 401
-    assert client.get("/api/watches/by-email").status_code == 422  # token required
+def test_by_email_requires_the_email_param(_mem):
+    assert client.get("/api/watches/by-email").status_code == 422
+    assert client.get("/api/watches/by-email?email=").status_code == 422
 
 
-def test_by_email_lookup_token_cannot_be_used_after_expiry(_mem, _sent_emails, monkeypatch):
-    client.post("/api/watches/lookup-request", json={"email": "driver@example.com"})
-    token = _token_from_link(_lookup_link(_sent_emails))
-
-    from app.monitor import lookup_token as lt
-
-    later = lt.time.time() + 3600
-    monkeypatch.setattr(lt.time, "time", lambda: later)
-    assert client.get(f"/api/watches/by-email?token={token}").status_code == 401
-
-
-def test_extend_and_stop_work_with_the_email_lookup_watch_and_token(_mem, _sent_emails, _stub_eval):
+def test_extend_and_stop_work_with_the_email_lookup_watch_and_token(_mem, _stub_eval):
     """The manage_token handed back by /by-email is a real, usable token --
     same extend/stop endpoints a single-watch email link would use."""
     watch = _create(email="driver@example.com")
-    client.post("/api/watches/lookup-request", json={"email": "driver@example.com"})
-    token = _token_from_link(_lookup_link(_sent_emails))
-    item = client.get(f"/api/watches/by-email?token={token}").json()["watches"][0]
+    item = client.get("/api/watches/by-email?email=driver@example.com").json()["watches"][0]
 
     new_end = _mem.w[watch["watch_id"]].end_time + timedelta(days=1)
     r = client.post(

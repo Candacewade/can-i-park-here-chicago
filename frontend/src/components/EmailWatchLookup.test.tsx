@@ -2,13 +2,15 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EmailWatchLookup } from "./EmailWatchLookup";
 
-const requestWatchLookup = vi.fn();
+const listWatchesByEmail = vi.fn();
 vi.mock("../api", () => ({
-  requestWatchLookup: (...a: unknown[]) => requestWatchLookup(...a),
+  listWatchesByEmail: (...a: unknown[]) => listWatchesByEmail(...a),
+  extendWatch: vi.fn(),
+  stopWatch: vi.fn(),
 }));
 
 beforeEach(() => {
-  requestWatchLookup.mockReset();
+  listWatchesByEmail.mockReset();
 });
 
 describe("EmailWatchLookup", () => {
@@ -22,34 +24,36 @@ describe("EmailWatchLookup", () => {
     render(<EmailWatchLookup />);
     fireEvent.click(screen.getByText("Manage my parking watches"));
     fireEvent.change(screen.getByLabelText("Your email"), { target: { value: "not-an-email" } });
-    fireEvent.click(screen.getByRole("button", { name: "Email me the link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my watches" }));
     expect(screen.getByText(/valid email/)).toBeTruthy();
-    expect(requestWatchLookup).not.toHaveBeenCalled();
+    expect(listWatchesByEmail).not.toHaveBeenCalled();
   });
 
-  it("submits a valid email and shows the generic confirmation", async () => {
-    requestWatchLookup.mockResolvedValue({ sent: true });
+  it("submits a valid email and shows the results right away -- no click required", async () => {
+    listWatchesByEmail.mockResolvedValue([]);
     render(<EmailWatchLookup />);
     fireEvent.click(screen.getByText("Manage my parking watches"));
     fireEvent.change(screen.getByLabelText("Your email"), {
       target: { value: "driver@example.com" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Email me the link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my watches" }));
 
-    await waitFor(() => expect(requestWatchLookup).toHaveBeenCalledWith("driver@example.com"));
-    expect(await screen.findByText(/Check your email/)).toBeTruthy();
+    await waitFor(() => expect(listWatchesByEmail).toHaveBeenCalledWith("driver@example.com"));
+    expect(await screen.findByText(/No active parking watches/)).toBeTruthy();
   });
 
-  it("API failure shows an error and stays on the form", async () => {
-    requestWatchLookup.mockRejectedValue(new Error("500 boom"));
+  it('"Search a different email" returns to the entry button', async () => {
+    listWatchesByEmail.mockResolvedValue([]);
     render(<EmailWatchLookup />);
     fireEvent.click(screen.getByText("Manage my parking watches"));
     fireEvent.change(screen.getByLabelText("Your email"), {
       target: { value: "driver@example.com" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Email me the link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find my watches" }));
+    await screen.findByText(/No active parking watches/);
 
-    expect(await screen.findByText(/500 boom/)).toBeTruthy();
-    expect(screen.getByLabelText("Your email")).toBeTruthy(); // still on the form
+    fireEvent.click(screen.getByText("Search a different email"));
+    expect(screen.getByText("Manage my parking watches")).toBeTruthy();
+    expect(screen.queryByText(/No active parking watches/)).toBeNull();
   });
 });
